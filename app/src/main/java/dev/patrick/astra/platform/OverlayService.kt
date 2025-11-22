@@ -69,6 +69,10 @@ class OverlayService :
             return
         }
 
+        val displayMetrics = resources.displayMetrics
+        val screenWidth = displayMetrics.widthPixels
+        val screenHeight = displayMetrics.heightPixels
+
         windowManager = getSystemService()
 
         val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -87,10 +91,26 @@ class OverlayService :
                 WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
             PixelFormat.TRANSLUCENT
         ).apply {
-            gravity = Gravity.CENTER_VERTICAL or Gravity.END
-            x = 40  // offset from the right edge
-            y = 0
+            // Use a simple top-start anchor; x/y are offsets from top-left
+            gravity = Gravity.TOP or Gravity.START
+
+            val bubbleMarginPx = (16 * displayMetrics.density).toInt()
+            x = screenWidth - bubbleMarginPx - 200
+            y = screenHeight / 2
         }
+
+        val bubbleSizePx = (64 * displayMetrics.density).toInt()
+        val bubbleMarginPx = (16 * displayMetrics.density).toInt()
+
+        // Final safety clamp before first show
+        params.x = params.x.coerceIn(
+            bubbleMarginPx,
+            screenWidth - bubbleSizePx - bubbleMarginPx
+        )
+        params.y = params.y.coerceIn(
+            bubbleMarginPx,
+            screenHeight - bubbleSizePx - bubbleMarginPx
+        )
 
         lastWindowX = params.x
         lastWindowY = params.y
@@ -112,6 +132,9 @@ class OverlayService :
                     // Observe overlay UI state from the shared store
                     val uiState by OverlayUiStateStore.overlayUiState.collectAsState()
 
+                    val bubbleSizePxInner = bubbleSizePx
+                    val bubbleMarginPxInner = bubbleMarginPx
+
                     OverlayBubble(
                         state = uiState.state,
                         emotion = uiState.emotion,
@@ -120,22 +143,44 @@ class OverlayService :
                         },
                         onDrag = { dx, dy ->
                             val layoutParams = params
+
+                            // Update raw position
                             layoutParams.x += dx.toInt()
                             layoutParams.y += dy.toInt()
+
+                            // Clamp the bubble so it can't fully leave the screen
+                            val minX = bubbleMarginPxInner
+                            val maxX = screenWidth - bubbleSizePxInner - bubbleMarginPxInner
+                            val minY = bubbleMarginPxInner
+                            val maxY = screenHeight - bubbleSizePxInner - bubbleMarginPxInner
+
+                            layoutParams.x = layoutParams.x.coerceIn(minX, maxX)
+                            layoutParams.y = layoutParams.y.coerceIn(minY, maxY)
+
                             lastWindowX = layoutParams.x
                             lastWindowY = layoutParams.y
+
                             wm?.updateViewLayout(this@apply, layoutParams)
                         },
                         onDragEnd = {
                             val layoutParams = params
-                            val displayWidth = resources.displayMetrics.widthPixels
-                            val middle = displayWidth / 2
 
-                            layoutParams.x = if (lastWindowX > middle) {
-                                displayWidth / 2 - 40
+                            // Decide which edge to snap to based on current x
+                            val midX = screenWidth / 2
+                            val snappedX = if (lastWindowX > midX) {
+                                screenWidth - bubbleSizePxInner - bubbleMarginPxInner
                             } else {
-                                -displayWidth / 2 + 40
+                                bubbleMarginPxInner
                             }
+
+                            layoutParams.x = snappedX
+                            layoutParams.y = layoutParams.y.coerceIn(
+                                bubbleMarginPxInner,
+                                screenHeight - bubbleSizePxInner - bubbleMarginPxInner
+                            )
+
+                            lastWindowX = layoutParams.x
+                            lastWindowY = layoutParams.y
 
                             wm?.updateViewLayout(this@apply, layoutParams)
                         },
