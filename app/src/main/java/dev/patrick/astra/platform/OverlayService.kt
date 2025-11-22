@@ -44,6 +44,9 @@ class OverlayService :
     // Drag state for overlay position
     private var lastWindowX: Int = 0
     private var lastWindowY: Int = 0
+    // Real measured size of the Compose bubble in px
+    private var bubbleWidthPx: Int = 0
+    private var bubbleHeightPx: Int = 0
 
     // ViewModelStoreOwner implementation
     override val viewModelStore: ViewModelStore = ViewModelStore()
@@ -87,29 +90,25 @@ class OverlayService :
             WindowManager.LayoutParams.WRAP_CONTENT,
             type,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
             PixelFormat.TRANSLUCENT
         ).apply {
             // Use a simple top-start anchor; x/y are offsets from top-left
             gravity = Gravity.TOP or Gravity.START
-
-            val bubbleMarginPx = (16 * displayMetrics.density).toInt()
-            x = screenWidth - bubbleMarginPx - 200
+            x = screenWidth / 2
             y = screenHeight / 2
         }
 
-        val bubbleSizePx = (64 * displayMetrics.density).toInt()
-        val bubbleMarginPx = (16 * displayMetrics.density).toInt()
+        val bubbleMarginPx = (24 * displayMetrics.density).toInt()
 
         // Final safety clamp before first show
         params.x = params.x.coerceIn(
             bubbleMarginPx,
-            screenWidth - bubbleSizePx - bubbleMarginPx
+            screenWidth - (64 * displayMetrics.density).toInt() - bubbleMarginPx
         )
         params.y = params.y.coerceIn(
             bubbleMarginPx,
-            screenHeight - bubbleSizePx - bubbleMarginPx
+            screenHeight - (64 * displayMetrics.density).toInt() - bubbleMarginPx
         )
 
         lastWindowX = params.x
@@ -132,7 +131,6 @@ class OverlayService :
                     // Observe overlay UI state from the shared store
                     val uiState by OverlayUiStateStore.overlayUiState.collectAsState()
 
-                    val bubbleSizePxInner = bubbleSizePx
                     val bubbleMarginPxInner = bubbleMarginPx
 
                     OverlayBubble(
@@ -144,15 +142,18 @@ class OverlayService :
                         onDrag = { dx, dy ->
                             val layoutParams = params
 
+                            val w = if (bubbleWidthPx > 0) bubbleWidthPx else (64 * displayMetrics.density).toInt()
+                            val h = if (bubbleHeightPx > 0) bubbleHeightPx else (64 * displayMetrics.density).toInt()
+
                             // Update raw position
                             layoutParams.x += dx.toInt()
                             layoutParams.y += dy.toInt()
 
                             // Clamp the bubble so it can't fully leave the screen
                             val minX = bubbleMarginPxInner
-                            val maxX = screenWidth - bubbleSizePxInner - bubbleMarginPxInner
+                            val maxX = screenWidth - w - bubbleMarginPxInner
                             val minY = bubbleMarginPxInner
-                            val maxY = screenHeight - bubbleSizePxInner - bubbleMarginPxInner
+                            val maxY = screenHeight - h - bubbleMarginPxInner
 
                             layoutParams.x = layoutParams.x.coerceIn(minX, maxX)
                             layoutParams.y = layoutParams.y.coerceIn(minY, maxY)
@@ -165,10 +166,13 @@ class OverlayService :
                         onDragEnd = {
                             val layoutParams = params
 
+                            val w = if (bubbleWidthPx > 0) bubbleWidthPx else (64 * displayMetrics.density).toInt()
+                            val h = if (bubbleHeightPx > 0) bubbleHeightPx else (64 * displayMetrics.density).toInt()
+
                             // Decide which edge to snap to based on current x
                             val midX = screenWidth / 2
                             val snappedX = if (lastWindowX > midX) {
-                                screenWidth - bubbleSizePxInner - bubbleMarginPxInner
+                                screenWidth - w - bubbleMarginPxInner
                             } else {
                                 bubbleMarginPxInner
                             }
@@ -176,7 +180,7 @@ class OverlayService :
                             layoutParams.x = snappedX
                             layoutParams.y = layoutParams.y.coerceIn(
                                 bubbleMarginPxInner,
-                                screenHeight - bubbleSizePxInner - bubbleMarginPxInner
+                                screenHeight - h - bubbleMarginPxInner
                             )
 
                             lastWindowX = layoutParams.x
@@ -186,6 +190,10 @@ class OverlayService :
                         },
                         onLongPress = {
                             // Future: radial menu or quick actions
+                        },
+                        onLayoutChanged = { widthPx, heightPx ->
+                            bubbleWidthPx = widthPx
+                            bubbleHeightPx = heightPx
                         }
                     )
                 }

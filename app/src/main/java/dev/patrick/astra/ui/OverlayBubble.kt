@@ -31,6 +31,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
@@ -59,7 +60,8 @@ fun OverlayBubble(
     onClick: () -> Unit,
     onDrag: (dx: Float, dy: Float) -> Unit,
     onDragEnd: () -> Unit,
-    onLongPress: (() -> Unit)? = null
+    onLongPress: (() -> Unit)? = null,
+    onLayoutChanged: ((widthPx: Int, heightPx: Int) -> Unit)? = null
 ) {
     // Is the user currently dragging?
     var isDragging by remember { mutableStateOf(false) }
@@ -195,6 +197,10 @@ fun OverlayBubble(
 
     Box(
         modifier = modifier
+            .onGloballyPositioned { layoutCoordinates ->
+                val size = layoutCoordinates.size
+                onLayoutChanged?.invoke(size.width, size.height)
+            }
             .pointerInput(Unit) {
                 detectDragGestures(
                     onDragStart = {
@@ -250,7 +256,7 @@ fun OverlayBubble(
         // Aura halo
         Box(
             modifier = Modifier
-                .size(64.dp)
+                .size(56.dp)
                 .alpha(auraAlpha)
                 .background(
                     brush = Brush.radialGradient(
