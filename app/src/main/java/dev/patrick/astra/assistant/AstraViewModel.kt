@@ -4,6 +4,8 @@ import android.app.Application
 import android.content.Intent
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import dev.patrick.astra.ui.AstraState
+import dev.patrick.astra.ui.Emotion
 import dev.patrick.astra.stt.CloudSttEngineStub
 import dev.patrick.astra.stt.LocalWhisperEngineStub
 import dev.patrick.astra.stt.SttBackend
@@ -52,6 +54,10 @@ class AstraViewModel(
     // Future: this could be user-configurable (e.g., from settings screen).
     private val currentSttBackend: SttBackend = SttBackend.SYSTEM
 
+    init {
+        setIdle()
+    }
+
     private fun ensureTranscriptionEngine() {
         if (transcriptionEngine != null) return
 
@@ -68,6 +74,8 @@ class AstraViewModel(
 
     fun sendUserMessage(text: String) {
         if (text.isBlank()) return
+
+        setThinking()
 
         // Add the user message and show thinking state
         _uiState.update { state ->
@@ -90,6 +98,7 @@ class AstraViewModel(
     }
 
     private fun speak(text: String) {
+        setSpeaking()
         val intent = Intent(context, TtsService::class.java).apply {
             putExtra(TtsService.EXTRA_TEXT, text)
         }
@@ -98,6 +107,7 @@ class AstraViewModel(
 
     fun startVoiceInput() {
         ensureTranscriptionEngine()
+        setListening()
         transcriptionEngine?.startListening(
             onFinalResult = { recognizedText ->
                 // When we get a final result, treat it like a user message.
@@ -107,11 +117,15 @@ class AstraViewModel(
                 _uiState.update { state ->
                     state.copy(isListening = false)
                 }
+                setError()
                 // TODO: Optionally log or surface the error message.
             },
             onListeningChanged = { listening ->
                 _uiState.update { state ->
                     state.copy(isListening = listening)
+                }
+                if (listening) {
+                    setListening()
                 }
             }
         )
@@ -122,11 +136,47 @@ class AstraViewModel(
         _uiState.update { state ->
             state.copy(isListening = false)
         }
+        setIdle()
     }
 
     override fun onCleared() {
         transcriptionEngine?.release()
         transcriptionEngine = null
         super.onCleared()
+    }
+
+    private fun setIdle() {
+        OverlayUiStateStore.set(
+            state = AstraState.Idle,
+            emotion = Emotion.Neutral
+        )
+    }
+
+    private fun setListening() {
+        OverlayUiStateStore.set(
+            state = AstraState.Listening(intensity = 1f),
+            emotion = Emotion.Focused
+        )
+    }
+
+    private fun setThinking() {
+        OverlayUiStateStore.set(
+            state = AstraState.Thinking(mood = Emotion.Focused),
+            emotion = Emotion.Focused
+        )
+    }
+
+    private fun setSpeaking() {
+        OverlayUiStateStore.set(
+            state = AstraState.Speaking(mood = Emotion.Happy),
+            emotion = Emotion.Happy
+        )
+    }
+
+    private fun setError() {
+        OverlayUiStateStore.set(
+            state = AstraState.Error(),
+            emotion = Emotion.Concerned
+        )
     }
 }

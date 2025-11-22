@@ -6,9 +6,10 @@ import android.graphics.PixelFormat
 import android.os.Build
 import android.provider.Settings
 import android.view.Gravity
-import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.ViewCompositionStrategy
 import androidx.core.content.getSystemService
@@ -21,6 +22,7 @@ import androidx.savedstate.SavedStateRegistry
 import androidx.savedstate.SavedStateRegistryController
 import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
+import dev.patrick.astra.assistant.OverlayUiStateStore
 import dev.patrick.astra.ui.MainActivity
 import dev.patrick.astra.ui.OverlayBubble
 import dev.patrick.astra.ui.theme.AstraAssistantTheme
@@ -39,11 +41,9 @@ class OverlayService :
     private var windowManager: WindowManager? = null
     private var overlayView: View? = null
 
-    // Last touch coordinates for dragging
-    private var initialX: Int = 0
-    private var initialY: Int = 0
-    private var initialTouchX: Float = 0f
-    private var initialTouchY: Float = 0f
+    // Drag state for overlay position
+    private var lastWindowX: Int = 0
+    private var lastWindowY: Int = 0
 
     // ViewModelStoreOwner implementation
     override val viewModelStore: ViewModelStore = ViewModelStore()
@@ -92,6 +92,10 @@ class OverlayService :
             y = 0
         }
 
+        lastWindowX = params.x
+        lastWindowY = params.y
+
+        val wm = windowManager
         val composeView = ComposeView(this).apply {
             // Ensure Compose disposes correctly when the view is removed
             setViewCompositionStrategy(
@@ -105,41 +109,41 @@ class OverlayService :
 
             setContent {
                 AstraAssistantTheme {
+                    // Observe overlay UI state from the shared store
+                    val uiState by OverlayUiStateStore.overlayUiState.collectAsState()
+
                     OverlayBubble(
+                        state = uiState.state,
+                        emotion = uiState.emotion,
                         onClick = {
                             bringMainActivityToFront()
+                        },
+                        onDrag = { dx, dy ->
+                            val layoutParams = params
+                            layoutParams.x += dx.toInt()
+                            layoutParams.y += dy.toInt()
+                            lastWindowX = layoutParams.x
+                            lastWindowY = layoutParams.y
+                            wm?.updateViewLayout(this@apply, layoutParams)
+                        },
+                        onDragEnd = {
+                            val layoutParams = params
+                            val displayWidth = resources.displayMetrics.widthPixels
+                            val middle = displayWidth / 2
+
+                            layoutParams.x = if (lastWindowX > middle) {
+                                displayWidth / 2 - 40
+                            } else {
+                                -displayWidth / 2 + 40
+                            }
+
+                            wm?.updateViewLayout(this@apply, layoutParams)
+                        },
+                        onLongPress = {
+                            // Future: radial menu or quick actions
                         }
                     )
                 }
-            }
-        }
-
-        // Wrap in a touchable container to support dragging
-        composeView.setOnTouchListener { v, event ->
-            val wm = windowManager ?: return@setOnTouchListener false
-            val lp = params
-
-            when (event.action) {
-                MotionEvent.ACTION_DOWN -> {
-                    initialX = lp.x
-                    initialY = lp.y
-                    initialTouchX = event.rawX
-                    initialTouchY = event.rawY
-                    true
-                }
-                MotionEvent.ACTION_MOVE -> {
-                    val dx = (event.rawX - initialTouchX).toInt()
-                    val dy = (event.rawY - initialTouchY).toInt()
-                    lp.x = initialX - dx
-                    lp.y = initialY + dy
-                    wm.updateViewLayout(v, lp)
-                    true
-                }
-                MotionEvent.ACTION_UP -> {
-                    // Optional: snap to edges or add click vs drag threshold
-                    false
-                }
-                else -> false
             }
         }
 
