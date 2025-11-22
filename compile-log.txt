@@ -1,0 +1,236 @@
+Initialized native services in: /Users/patricklarocque/.gradle/native
+Initialized jansi services in: /Users/patricklarocque/.gradle/native
+Found daemon DaemonInfo{pid=7905, address=[1ae5da05-7683-4dd2-b240-ceedd1e105c9 port:54135, addresses:[/127.0.0.1]], state=Idle, lastBusy=1763748417722, context=DefaultDaemonContext[uid=7c5dba21-71d1-49da-90c4-69b1ca4212de,javaHome=/opt/homebrew/Cellar/openjdk@21/21.0.9/libexec/openjdk.jdk/Contents/Home,javaVersion=21,javaVendor=Homebrew,daemonRegistryDir=/Users/patricklarocque/.gradle/daemon,pid=7905,idleTimeout=10800000,priority=NORMAL,applyInstrumentationAgent=true,nativeServicesMode=ENABLED,daemonOpts=-Xmx2048m,-Dfile.encoding=UTF-8,-Duser.country=CA,-Duser.language=en,-Duser.variant]} however its context does not match the desired criteria.
+JVM is incompatible.
+Wanted: DaemonRequestContext{jvmCriteria=/opt/homebrew/Cellar/openjdk@17/17.0.17/libexec/openjdk.jdk/Contents/Home (no JDK specified, using current Java home), daemonOpts=[-Xmx2048m, -Dfile.encoding=UTF-8, -Duser.country=CA, -Duser.language=en, -Duser.variant], applyInstrumentationAgent=true, nativeServicesMode=ENABLED, priority=NORMAL}
+Actual: DefaultDaemonContext[uid=7c5dba21-71d1-49da-90c4-69b1ca4212de,javaHome=/opt/homebrew/Cellar/openjdk@21/21.0.9/libexec/openjdk.jdk/Contents/Home,javaVersion=21,javaVendor=Homebrew,daemonRegistryDir=/Users/patricklarocque/.gradle/daemon,pid=7905,idleTimeout=10800000,priority=NORMAL,applyInstrumentationAgent=true,nativeServicesMode=ENABLED,daemonOpts=-Xmx2048m,-Dfile.encoding=UTF-8,-Duser.country=CA,-Duser.language=en,-Duser.variant]
+
+  Looking for a different daemon...
+The client will now receive all logging from the daemon (pid: 4975). The daemon log file: /Users/patricklarocque/.gradle/daemon/8.13/daemon-4975.out.log
+Starting 24th build in daemon [uptime: 3 hrs 3 mins 22.978 secs, performance: 95%, GC rate: 0.00/s, heap usage: 4% of 2 GiB]
+Using 8 worker leases.
+Now considering [/Users/patricklarocque/AndroidStudioProjects/AstraAssistant] as hierarchies to watch
+Watching the file system is configured to be enabled if available
+File system watching is active
+Starting Build
+Settings evaluated using settings file '/Users/patricklarocque/AndroidStudioProjects/AstraAssistant/settings.gradle.kts'.
+Projects loaded. Root project using build file '/Users/patricklarocque/AndroidStudioProjects/AstraAssistant/build.gradle.kts'.
+Included projects: [root project 'Astra Assistant', project ':app']
+
+> Configure project :
+Evaluating root project 'Astra Assistant' using build file '/Users/patricklarocque/AndroidStudioProjects/AstraAssistant/build.gradle.kts'.
+Resolved plugin [id: 'com.android.application', version: '8.13.1', apply: false]
+Resolved plugin [id: 'org.jetbrains.kotlin.android', version: '2.0.21', apply: false]
+Resolved plugin [id: 'org.jetbrains.kotlin.plugin.compose', version: '2.0.21', apply: false]
+
+> Configure project :app
+Evaluating project ':app' using build file '/Users/patricklarocque/AndroidStudioProjects/AstraAssistant/app/build.gradle.kts'.
+Resolved plugin [id: 'com.android.application', version: '8.13.1']
+Resolved plugin [id: 'org.jetbrains.kotlin.android', version: '2.0.21']
+Resolved plugin [id: 'org.jetbrains.kotlin.plugin.compose', version: '2.0.21']
+Using default execution profile
+Using Kotlin Gradle Plugin gradle85 variant
+Detected Android Gradle Plugin compose compiler configuration
+Detected Android Gradle Plugin compose compiler configuration
+Detected Android Gradle Plugin compose compiler configuration
+Detected Android Gradle Plugin compose compiler configuration
+Detected Android Gradle Plugin compose compiler configuration
+All projects evaluated.
+Task path ':app:compileDebugKotlin' matched project ':app'
+Task name matched 'compileDebugKotlin'
+Adding -Xuse-inline-scopes-numbers Kotlin compiler flag for task :app:compileDebugKotlin
+Selected primary task 'compileDebugKotlin' from project :app
+Tasks to be executed: [task ':app:checkKotlinGradlePluginConfigurationErrors', task ':app:preBuild', task ':app:preDebugBuild', task ':app:checkDebugAarMetadata', task ':app:processDebugNavigationResources', task ':app:compileDebugNavigationResources', task ':app:generateDebugResValues', task ':app:mapDebugSourceSetPaths', task ':app:generateDebugResources', task ':app:mergeDebugResources', task ':app:packageDebugResources', task ':app:parseDebugLocalResources', task ':app:createDebugCompatibleScreenManifests', task ':app:extractDeepLinksDebug', task ':app:processDebugMainManifest', task ':app:processDebugManifest', task ':app:processDebugManifestForPackage', task ':app:processDebugResources', task ':app:compileDebugKotlin']
+Tasks that were excluded: []
+Resolve mutations for :app:checkKotlinGradlePluginConfigurationErrors (Thread[Execution worker,5,main]) started.
+:app:checkKotlinGradlePluginConfigurationErrors (Thread[Execution worker,5,main]) started.
+
+> Task :app:checkKotlinGradlePluginConfigurationErrors SKIPPED
+Skipping task ':app:checkKotlinGradlePluginConfigurationErrors' as task onlyIf 'errorDiagnostics are present' is false.
+Resolve mutations for :app:preBuild (Thread[Execution worker,5,main]) started.
+:app:preBuild (Thread[Execution worker,5,main]) started.
+
+> Task :app:preBuild UP-TO-DATE
+Skipping task ':app:preBuild' as it has no actions.
+Resolve mutations for :app:preDebugBuild (Thread[Execution worker,5,main]) started.
+:app:preDebugBuild (Thread[included builds,5,main]) started.
+
+> Task :app:preDebugBuild UP-TO-DATE
+Skipping task ':app:preDebugBuild' as it has no actions.
+Resolve mutations for :app:checkDebugAarMetadata (Thread[included builds,5,main]) started.
+:app:checkDebugAarMetadata (Thread[included builds,5,main]) started.
+
+> Task :app:checkDebugAarMetadata UP-TO-DATE
+Caching disabled for task ':app:checkDebugAarMetadata' because:
+  Build cache is disabled
+  Caching has been disabled for the task
+Skipping task ':app:checkDebugAarMetadata' as it is up-to-date.
+Resolve mutations for :app:processDebugNavigationResources (Thread[included builds,5,main]) started.
+:app:processDebugNavigationResources (Thread[included builds,5,main]) started.
+
+> Task :app:processDebugNavigationResources UP-TO-DATE
+Caching disabled for task ':app:processDebugNavigationResources' because:
+  Build cache is disabled
+Skipping task ':app:processDebugNavigationResources' as it is up-to-date.
+Resolve mutations for :app:compileDebugNavigationResources (Thread[included builds,5,main]) started.
+:app:compileDebugNavigationResources (Thread[included builds,5,main]) started.
+
+> Task :app:compileDebugNavigationResources UP-TO-DATE
+Caching disabled for task ':app:compileDebugNavigationResources' because:
+  Build cache is disabled
+Skipping task ':app:compileDebugNavigationResources' as it is up-to-date.
+Resolve mutations for :app:generateDebugResValues (Thread[included builds,5,main]) started.
+:app:generateDebugResValues (Thread[included builds,5,main]) started.
+
+> Task :app:generateDebugResValues UP-TO-DATE
+Caching disabled for task ':app:generateDebugResValues' because:
+  Build cache is disabled
+Skipping task ':app:generateDebugResValues' as it is up-to-date.
+Resolve mutations for :app:mapDebugSourceSetPaths (Thread[included builds,5,main]) started.
+:app:mapDebugSourceSetPaths (Thread[included builds,5,main]) started.
+
+> Task :app:mapDebugSourceSetPaths UP-TO-DATE
+Caching disabled for task ':app:mapDebugSourceSetPaths' because:
+  Build cache is disabled
+  Caching has been disabled for the task
+Skipping task ':app:mapDebugSourceSetPaths' as it is up-to-date.
+Resolve mutations for :app:generateDebugResources (Thread[included builds,5,main]) started.
+:app:generateDebugResources (Thread[included builds,5,main]) started.
+
+> Task :app:generateDebugResources UP-TO-DATE
+Caching disabled for task ':app:generateDebugResources' because:
+  Build cache is disabled
+Skipping task ':app:generateDebugResources' as it is up-to-date.
+Resolve mutations for :app:mergeDebugResources (Thread[included builds,5,main]) started.
+:app:mergeDebugResources (Thread[included builds,5,main]) started.
+
+> Task :app:mergeDebugResources UP-TO-DATE
+Caching disabled for task ':app:mergeDebugResources' because:
+  Build cache is disabled
+Skipping task ':app:mergeDebugResources' as it is up-to-date.
+Resolve mutations for :app:packageDebugResources (Thread[included builds,5,main]) started.
+:app:packageDebugResources (Thread[included builds,5,main]) started.
+
+> Task :app:packageDebugResources UP-TO-DATE
+Caching disabled for task ':app:packageDebugResources' because:
+  Build cache is disabled
+Skipping task ':app:packageDebugResources' as it is up-to-date.
+Resolve mutations for :app:parseDebugLocalResources (Thread[included builds,5,main]) started.
+:app:parseDebugLocalResources (Thread[included builds,5,main]) started.
+
+> Task :app:parseDebugLocalResources UP-TO-DATE
+Caching disabled for task ':app:parseDebugLocalResources' because:
+  Build cache is disabled
+Skipping task ':app:parseDebugLocalResources' as it is up-to-date.
+Resolve mutations for :app:createDebugCompatibleScreenManifests (Thread[included builds,5,main]) started.
+:app:createDebugCompatibleScreenManifests (Thread[included builds,5,main]) started.
+
+> Task :app:createDebugCompatibleScreenManifests UP-TO-DATE
+Caching disabled for task ':app:createDebugCompatibleScreenManifests' because:
+  Build cache is disabled
+  Caching has been disabled for the task
+Skipping task ':app:createDebugCompatibleScreenManifests' as it is up-to-date.
+Resolve mutations for :app:extractDeepLinksDebug (Thread[included builds,5,main]) started.
+:app:extractDeepLinksDebug (Thread[included builds,5,main]) started.
+
+> Task :app:extractDeepLinksDebug UP-TO-DATE
+Caching disabled for task ':app:extractDeepLinksDebug' because:
+  Build cache is disabled
+Skipping task ':app:extractDeepLinksDebug' as it is up-to-date.
+Resolve mutations for :app:processDebugMainManifest (Thread[included builds,5,main]) started.
+:app:processDebugMainManifest (Thread[included builds,5,main]) started.
+
+> Task :app:processDebugMainManifest UP-TO-DATE
+Caching disabled for task ':app:processDebugMainManifest' because:
+  Build cache is disabled
+Skipping task ':app:processDebugMainManifest' as it is up-to-date.
+Resolve mutations for :app:processDebugManifest (Thread[included builds,5,main]) started.
+:app:processDebugManifest (Thread[included builds,5,main]) started.
+
+> Task :app:processDebugManifest UP-TO-DATE
+Caching disabled for task ':app:processDebugManifest' because:
+  Build cache is disabled
+Skipping task ':app:processDebugManifest' as it is up-to-date.
+Resolve mutations for :app:processDebugManifestForPackage (Thread[included builds,5,main]) started.
+:app:processDebugManifestForPackage (Thread[included builds,5,main]) started.
+
+> Task :app:processDebugManifestForPackage UP-TO-DATE
+Custom actions are attached to task ':app:processDebugManifestForPackage'.
+Caching disabled for task ':app:processDebugManifestForPackage' because:
+  Build cache is disabled
+Skipping task ':app:processDebugManifestForPackage' as it is up-to-date.
+Resolve mutations for :app:processDebugResources (Thread[included builds,5,main]) started.
+:app:processDebugResources (Thread[included builds,5,main]) started.
+
+> Task :app:processDebugResources UP-TO-DATE
+Caching disabled for task ':app:processDebugResources' because:
+  Build cache is disabled
+Skipping task ':app:processDebugResources' as it is up-to-date.
+Resolve mutations for :app:compileDebugKotlin (Thread[included builds,5,main]) started.
+:app:compileDebugKotlin (Thread[included builds,5,main]) started.
+
+> Task :app:compileDebugKotlin FAILED
+Adding -Xuse-inline-scopes-numbers Kotlin compiler flag for task :app:compileDebugAndroidTestKotlin
+GradleBuildProject.Builder should not be accessed through AnalyticsConfiguratorService after AnalyticsService is created. Analytics information of this build might be incomplete.
+Caching disabled for task ':app:compileDebugKotlin' because:
+  Build cache is disabled
+Task ':app:compileDebugKotlin' is not up-to-date because:
+  Task has failed previously.
+The input changes require a full rebuild for incremental task ':app:compileDebugKotlin'.
+file or directory '/Users/patricklarocque/AndroidStudioProjects/AstraAssistant/app/src/debug/kotlin', not found
+file or directory '/Users/patricklarocque/AndroidStudioProjects/AstraAssistant/app/src/debug/java', not found
+file or directory '/Users/patricklarocque/AndroidStudioProjects/AstraAssistant/app/src/debug/kotlin', not found
+file or directory '/Users/patricklarocque/AndroidStudioProjects/AstraAssistant/app/src/debug/java', not found
+file or directory '/Users/patricklarocque/AndroidStudioProjects/AstraAssistant/app/src/debug/kotlin', not found
+file or directory '/Users/patricklarocque/AndroidStudioProjects/AstraAssistant/app/src/debug/java', not found
+file or directory '/Users/patricklarocque/AndroidStudioProjects/AstraAssistant/app/src/main/kotlin', not found
+file or directory '/Users/patricklarocque/AndroidStudioProjects/AstraAssistant/app/src/main/kotlin', not found
+file or directory '/Users/patricklarocque/AndroidStudioProjects/AstraAssistant/app/src/main/kotlin', not found
+file or directory '/Users/patricklarocque/AndroidStudioProjects/AstraAssistant/app/src/debug/java', not found
+file or directory '/Users/patricklarocque/AndroidStudioProjects/AstraAssistant/app/src/debug/kotlin', not found
+file or directory '/Users/patricklarocque/AndroidStudioProjects/AstraAssistant/app/src/debug/java', not found
+file or directory '/Users/patricklarocque/AndroidStudioProjects/AstraAssistant/app/src/debug/kotlin', not found
+file or directory '/Users/patricklarocque/AndroidStudioProjects/AstraAssistant/app/src/debug/java', not found
+file or directory '/Users/patricklarocque/AndroidStudioProjects/AstraAssistant/app/src/debug/kotlin', not found
+file or directory '/Users/patricklarocque/AndroidStudioProjects/AstraAssistant/app/src/debug/java', not found
+file or directory '/Users/patricklarocque/AndroidStudioProjects/AstraAssistant/app/src/main/kotlin', not found
+file or directory '/Users/patricklarocque/AndroidStudioProjects/AstraAssistant/app/src/debug/kotlin', not found
+file or directory '/Users/patricklarocque/AndroidStudioProjects/AstraAssistant/app/src/debug/java', not found
+file or directory '/Users/patricklarocque/AndroidStudioProjects/AstraAssistant/app/src/debug/kotlin', not found
+file or directory '/Users/patricklarocque/AndroidStudioProjects/AstraAssistant/app/src/debug/java', not found
+file or directory '/Users/patricklarocque/AndroidStudioProjects/AstraAssistant/app/src/debug/kotlin', not found
+file or directory '/Users/patricklarocque/AndroidStudioProjects/AstraAssistant/app/src/debug/java', not found
+file or directory '/Users/patricklarocque/AndroidStudioProjects/AstraAssistant/app/src/main/kotlin', not found
+file or directory '/Users/patricklarocque/AndroidStudioProjects/AstraAssistant/app/src/main/kotlin', not found
+file or directory '/Users/patricklarocque/AndroidStudioProjects/AstraAssistant/app/src/main/kotlin', not found
+file or directory '/Users/patricklarocque/AndroidStudioProjects/AstraAssistant/app/src/debug/java', not found
+file or directory '/Users/patricklarocque/AndroidStudioProjects/AstraAssistant/app/src/debug/kotlin', not found
+file or directory '/Users/patricklarocque/AndroidStudioProjects/AstraAssistant/app/src/debug/java', not found
+file or directory '/Users/patricklarocque/AndroidStudioProjects/AstraAssistant/app/src/debug/kotlin', not found
+file or directory '/Users/patricklarocque/AndroidStudioProjects/AstraAssistant/app/src/debug/java', not found
+file or directory '/Users/patricklarocque/AndroidStudioProjects/AstraAssistant/app/src/debug/kotlin', not found
+file or directory '/Users/patricklarocque/AndroidStudioProjects/AstraAssistant/app/src/debug/java', not found
+file or directory '/Users/patricklarocque/AndroidStudioProjects/AstraAssistant/app/src/main/kotlin', not found
+file or directory '/Users/patricklarocque/AndroidStudioProjects/AstraAssistant/app/src/main/kotlin', not found
+file or directory '/Users/patricklarocque/AndroidStudioProjects/AstraAssistant/app/src/main/kotlin', not found
+file or directory '/Users/patricklarocque/AndroidStudioProjects/AstraAssistant/app/src/debug/java', not found
+file or directory '/Users/patricklarocque/AndroidStudioProjects/AstraAssistant/app/src/debug/kotlin', not found
+file or directory '/Users/patricklarocque/AndroidStudioProjects/AstraAssistant/app/src/debug/java', not found
+file or directory '/Users/patricklarocque/AndroidStudioProjects/AstraAssistant/app/src/debug/kotlin', not found
+file or directory '/Users/patricklarocque/AndroidStudioProjects/AstraAssistant/app/src/debug/java', not found
+file or directory '/Users/patricklarocque/AndroidStudioProjects/AstraAssistant/app/src/debug/kotlin', not found
+file or directory '/Users/patricklarocque/AndroidStudioProjects/AstraAssistant/app/src/debug/java', not found
+file or directory '/Users/patricklarocque/AndroidStudioProjects/AstraAssistant/app/src/main/kotlin', not found
+file or directory '/Users/patricklarocque/AndroidStudioProjects/AstraAssistant/app/src/main/kotlin', not found
+file or directory '/Users/patricklarocque/AndroidStudioProjects/AstraAssistant/app/src/main/kotlin', not found
+file or directory '/Users/patricklarocque/AndroidStudioProjects/AstraAssistant/app/src/debug/java', not found
+Kotlin source files: /Users/patricklarocque/AndroidStudioProjects/AstraAssistant/app/src/main/java/dev/patrick/astra/assistant/AstraViewModel.kt, /Users/patricklarocque/AndroidStudioProjects/AstraAssistant/app/src/main/java/dev/patrick/astra/assistant/SpeechRecognizerManager.kt, /Users/patricklarocque/AndroidStudioProjects/AstraAssistant/app/src/main/java/dev/patrick/astra/assistant/AstraBrain.kt, /Users/patricklarocque/AndroidStudioProjects/AstraAssistant/app/src/main/java/dev/patrick/astra/assistant/TtsService.kt, /Users/patricklarocque/AndroidStudioProjects/AstraAssistant/app/src/main/java/dev/patrick/astra/ui/MainActivity.kt, /Users/patricklarocque/AndroidStudioProjects/AstraAssistant/app/src/main/java/dev/patrick/astra/ui/AstraCharacter.kt, /Users/patricklarocque/AndroidStudioProjects/AstraAssistant/app/src/main/java/dev/patrick/astra/ui/theme/Color.kt, /Users/patricklarocque/AndroidStudioProjects/AstraAssistant/app/src/main/java/dev/patrick/astra/ui/theme/Theme.kt, /Users/patricklarocque/AndroidStudioProjects/AstraAssistant/app/src/main/java/dev/patrick/astra/ui/theme/Type.kt, /Users/patricklarocque/AndroidStudioProjects/AstraAssistant/app/src/main/java/dev/patrick/astra/ui/OverlayBubble.kt, /Users/patricklarocque/AndroidStudioProjects/AstraAssistant/app/src/main/java/dev/patrick/astra/platform/OverlayController.kt, /Users/patricklarocque/AndroidStudioProjects/AstraAssistant/app/src/main/java/dev/patrick/astra/platform/OverlayService.kt, /Users/patricklarocque/AndroidStudioProjects/AstraAssistant/app/src/main/java/dev/patrick/astra/platform/AccessibilityBridge.kt, /Users/patricklarocque/AndroidStudioProjects/AstraAssistant/app/src/main/java/dev/patrick/astra/platform/AccessibilityServiceStub.kt, /Users/patricklarocque/AndroidStudioProjects/AstraAssistant/app/src/main/java/dev/patrick/astra/stt/SttBackend.kt, /Users/patricklarocque/AndroidStudioProjects/AstraAssistant/app/src/main/java/dev/patrick/astra/stt/TranscriptionEngine.kt, /Users/patricklarocque/AndroidStudioProjects/AstraAssistant/app/src/main/java/dev/patrick/astra/stt/SystemSpeechEngine.kt, /Users/patricklarocque/AndroidStudioProjects/AstraAssistant/app/src/main/java/dev/patrick/astra/stt/LocalWhisperEngineStub.kt, /Users/patricklarocque/AndroidStudioProjects/AstraAssistant/app/src/main/java/dev/patrick/astra/stt/CloudSttEngineStub.kt
+Java source files: 
+Script source files: 
+Script file extensions: 
+Using Kotlin/JVM incremental compilation
+[KOTLIN] Kotlin compilation 'jdkHome' argument: null
+Options for KOTLIN DAEMON: IncrementalCompilationOptions(super=CompilationOptions(compilerMode=INCREMENTAL_COMPILER, targetPlatform=JVM, reportCategories=[0, 3], reportSeverity=2, requestedCompilationResults=[0], kotlinScriptExtensions=[]), areFileChangesKnown=false, modifiedFiles=null, deletedFiles=null, classpathChanges=NotAvailableForNonIncrementalRun, workingDir=/Users/patricklarocque/AndroidStudioProjects/AstraAssistant/app/build/kotlin/compileDebugKotlin/cacheable, multiModuleICSettings=MultiModuleICSettings(buildHistoryFile=/Users/patricklarocque/AndroidStudioProjects/AstraAssistant/app/build/kotlin/compileDebugKotlin/local-state/build-history.bin, useModuleDetection=true), usePreciseJavaTracking=true, icFeatures=IncrementalCompilationFeatures(withAbiSnapshot=false, preciseCompilationResultsBackup=true, keepIncrementalCompilationCachesInMemory=true, enableUnsafeIncrementalCompilationForMultiplatform=false), outputFiles=[/Users/patricklarocque/AndroidStudioProjects/AstraAssistant/app/build/tmp/kotlin-classes/debug, /Users/patricklarocque/AndroidStudioProjects/AstraAssistant/app/build/kotlin/compileDebugKotlin/cacheable, /Users/patricklarocque/AndroidStudioProjects/AstraAssistant/app/build/kotlin/compileDebugKotlin/local-state])
+Finished executing kotlin compiler using DAEMON strategy
+16 actionable tasks: 1 executed, 15 up-to-date
+Watched directory hierarchies: [/Users/patricklarocque/AndroidStudioProjects/AstraAssistant]
