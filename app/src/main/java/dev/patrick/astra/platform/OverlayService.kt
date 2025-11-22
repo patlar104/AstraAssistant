@@ -23,6 +23,8 @@ import androidx.savedstate.SavedStateRegistryController
 import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import dev.patrick.astra.assistant.OverlayUiStateStore
+import dev.patrick.astra.ui.BUBBLE_MAX_VISUAL_SCALE_X
+import dev.patrick.astra.ui.BUBBLE_MAX_VISUAL_SCALE_Y
 import dev.patrick.astra.ui.MainActivity
 import dev.patrick.astra.ui.OverlayBubble
 import dev.patrick.astra.ui.theme.AstraAssistantTheme
@@ -102,13 +104,17 @@ class OverlayService :
         val bubbleMarginPx = (24 * displayMetrics.density).toInt()
 
         // Final safety clamp before first show
+        val baseClampW = (64 * displayMetrics.density).toInt()
+        val baseClampH = (64 * displayMetrics.density).toInt()
+        val effectiveClampW = (baseClampW * BUBBLE_MAX_VISUAL_SCALE_X).toInt()
+        val effectiveClampH = (baseClampH * BUBBLE_MAX_VISUAL_SCALE_Y).toInt()
         params.x = params.x.coerceIn(
             bubbleMarginPx,
-            screenWidth - (64 * displayMetrics.density).toInt() - bubbleMarginPx
+            screenWidth - effectiveClampW - bubbleMarginPx
         )
         params.y = params.y.coerceIn(
             bubbleMarginPx,
-            screenHeight - (64 * displayMetrics.density).toInt() - bubbleMarginPx
+            screenHeight - effectiveClampH - bubbleMarginPx
         )
 
         lastWindowX = params.x
@@ -144,6 +150,8 @@ class OverlayService :
 
                             val w = if (bubbleWidthPx > 0) bubbleWidthPx else (64 * displayMetrics.density).toInt()
                             val h = if (bubbleHeightPx > 0) bubbleHeightPx else (64 * displayMetrics.density).toInt()
+                            val effectiveW = (w * BUBBLE_MAX_VISUAL_SCALE_X).toInt()
+                            val effectiveH = (h * BUBBLE_MAX_VISUAL_SCALE_Y).toInt()
 
                             // Update raw position
                             layoutParams.x += dx.toInt()
@@ -151,9 +159,9 @@ class OverlayService :
 
                             // Clamp the bubble so it can't fully leave the screen
                             val minX = bubbleMarginPxInner
-                            val maxX = screenWidth - w - bubbleMarginPxInner
+                            val maxX = screenWidth - effectiveW - bubbleMarginPxInner
                             val minY = bubbleMarginPxInner
-                            val maxY = screenHeight - h - bubbleMarginPxInner
+                            val maxY = screenHeight - effectiveH - bubbleMarginPxInner
 
                             layoutParams.x = layoutParams.x.coerceIn(minX, maxX)
                             layoutParams.y = layoutParams.y.coerceIn(minY, maxY)
@@ -168,11 +176,13 @@ class OverlayService :
 
                             val w = if (bubbleWidthPx > 0) bubbleWidthPx else (64 * displayMetrics.density).toInt()
                             val h = if (bubbleHeightPx > 0) bubbleHeightPx else (64 * displayMetrics.density).toInt()
+                            val effectiveW = (w * BUBBLE_MAX_VISUAL_SCALE_X).toInt()
+                            val effectiveH = (h * BUBBLE_MAX_VISUAL_SCALE_Y).toInt()
 
                             // Decide which edge to snap to based on current x
                             val midX = screenWidth / 2
                             val snappedX = if (lastWindowX > midX) {
-                                screenWidth - w - bubbleMarginPxInner
+                                screenWidth - effectiveW - bubbleMarginPxInner
                             } else {
                                 bubbleMarginPxInner
                             }
@@ -180,7 +190,7 @@ class OverlayService :
                             layoutParams.x = snappedX
                             layoutParams.y = layoutParams.y.coerceIn(
                                 bubbleMarginPxInner,
-                                screenHeight - h - bubbleMarginPxInner
+                                screenHeight - effectiveH - bubbleMarginPxInner
                             )
 
                             lastWindowX = layoutParams.x

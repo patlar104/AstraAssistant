@@ -1,5 +1,10 @@
 package dev.patrick.astra.ui
 
+// Worst-case visual scale of the orb considering pulse + stretch animations.
+// These bounds are intentionally generous to ensure edge clamping is safe.
+const val BUBBLE_MAX_VISUAL_SCALE_X: Float = 1.25f
+const val BUBBLE_MAX_VISUAL_SCALE_Y: Float = 1.25f
+
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
