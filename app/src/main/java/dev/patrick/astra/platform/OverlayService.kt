@@ -159,12 +159,15 @@ class OverlayService :
 
                             // Clamp the bubble so it can't fully leave the screen
                             val minX = bubbleMarginPxInner
-                            val maxX = screenWidth - effectiveW - bubbleMarginPxInner
+                            val rawMaxX = screenWidth - effectiveW - bubbleMarginPxInner
                             val minY = bubbleMarginPxInner
-                            val maxY = screenHeight - effectiveH - bubbleMarginPxInner
+                            val rawMaxY = screenHeight - effectiveH - bubbleMarginPxInner
 
-                            layoutParams.x = layoutParams.x.coerceIn(minX, maxX)
-                            layoutParams.y = layoutParams.y.coerceIn(minY, maxY)
+                            val safeMaxX = maxOf(rawMaxX, minX)
+                            val safeMaxY = maxOf(rawMaxY, minY)
+
+                            layoutParams.x = layoutParams.x.coerceIn(minX, safeMaxX)
+                            layoutParams.y = layoutParams.y.coerceIn(minY, safeMaxY)
 
                             lastWindowX = layoutParams.x
                             lastWindowY = layoutParams.y
@@ -182,15 +185,19 @@ class OverlayService :
                             // Decide which edge to snap to based on current x
                             val midX = screenWidth / 2
                             val snappedX = if (lastWindowX > midX) {
-                                screenWidth - effectiveW - bubbleMarginPxInner
+                                screenWidth - maxOf(effectiveW, bubbleMarginPxInner) - bubbleMarginPxInner
                             } else {
                                 bubbleMarginPxInner
                             }
 
+                            val minY = bubbleMarginPxInner
+                            val rawMaxY = screenHeight - effectiveH - bubbleMarginPxInner
+                            val safeMaxY = maxOf(rawMaxY, minY)
+
                             layoutParams.x = snappedX
                             layoutParams.y = layoutParams.y.coerceIn(
-                                bubbleMarginPxInner,
-                                screenHeight - effectiveH - bubbleMarginPxInner
+                                minY,
+                                safeMaxY
                             )
 
                             lastWindowX = layoutParams.x
