@@ -1,8 +1,8 @@
 package dev.patrick.astra.ui
 
 import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
@@ -68,6 +68,7 @@ fun OverlayBubble(
 
     var isDragging by remember { mutableStateOf(false) }
     var dragMagnitude by remember { mutableStateOf(0f) }
+    var totalDrag by remember { mutableStateOf(Offset.Zero) }
     var eyeOffsetX by remember { mutableStateOf(0f) }
     var eyeOffsetY by remember { mutableStateOf(0f) }
     var isPressed by remember { mutableStateOf(false) }
@@ -178,55 +179,70 @@ fun OverlayBubble(
         label = "eye_scale_y"
     )
 
-    val gestureModifier = Modifier
-        .pointerInput(Unit) {
-            detectDragGestures(
-                onDragStart = {
+    val dragThresholdPx = with(LocalDensity.current) { 10.dp.toPx() }
+
+    val gestureModifier = Modifier.pointerInput(Unit) {
+        detectDragGestures(
+            onDragStart = {
+                isDragging = false
+                isPressed = true
+                dragMagnitude = 0f
+                totalDrag = Offset.Zero
+                eyeOffsetX = 0f
+                eyeOffsetY = 0f
+            },
+            onDrag = { change, dragAmount ->
+                totalDrag += dragAmount
+                val (dx, dy) = dragAmount
+                dragMagnitude = totalDrag.getDistance()
+                val normX = (dx / 40f).coerceIn(-1f, 1f)
+                val normY = (dy / 40f).coerceIn(-1f, 1f)
+                eyeOffsetX = normX
+                eyeOffsetY = normY
+
+                if (!isDragging && dragMagnitude > dragThresholdPx) {
                     isDragging = true
-                    isPressed = true
-                },
-                onDragEnd = {
-                    isDragging = false
-                    isPressed = false
-                    dragMagnitude = 0f
-                    eyeOffsetX = 0f
-                    eyeOffsetY = 0f
-                    dragEndCb()
-                },
-                onDragCancel = {
-                    isDragging = false
-                    isPressed = false
-                    dragMagnitude = 0f
-                    eyeOffsetX = 0f
-                    eyeOffsetY = 0f
-                    dragEndCb()
-                },
-                onDrag = { change, dragAmount ->
+                }
+
+                if (isDragging) {
                     change.consume()
-                    val (dx, dy) = dragAmount
-                    dragMagnitude = hypot(dx, dy)
-                    val normX = (dx / 40f).coerceIn(-1f, 1f)
-                    val normY = (dy / 40f).coerceIn(-1f, 1f)
-                    eyeOffsetX = normX
-                    eyeOffsetY = normY
                     dragCb(dx, dy)
                 }
-            )
-        }
-        .pointerInput(Unit) {
+            },
+            onDragEnd = {
+                if (isDragging) {
+                    dragEndCb()
+                } else {
+                    clickCb()
+                }
+                isDragging = false
+                isPressed = false
+                dragMagnitude = 0f
+                totalDrag = Offset.Zero
+                eyeOffsetX = 0f
+                eyeOffsetY = 0f
+            },
+            onDragCancel = {
+                isDragging = false
+                isPressed = false
+                dragMagnitude = 0f
+                totalDrag = Offset.Zero
+                eyeOffsetX = 0f
+                eyeOffsetY = 0f
+                dragEndCb()
+            }
+        )
+    }
+
+    val longPressModifier = if (longPressCb != null) {
+        Modifier.pointerInput(longPressCb) {
             detectTapGestures(
-                onPress = {
-                    isPressed = true
-                    try {
-                        tryAwaitRelease()
-                        clickCb()
-                    } finally {
-                        isPressed = false
-                    }
-                },
                 onLongPress = { longPressCb?.invoke() }
             )
         }
+    } else {
+        Modifier
+    }
 
     val maxEyeOffset = 0.12f
     val externalGazeX = gazeHintX ?: 0f
@@ -272,6 +288,7 @@ fun OverlayBubble(
             modifier = Modifier
                 .size(orbSizeDp)
                 .then(gestureModifier)
+                .then(longPressModifier)
         ) {
             drawOrb(
                 palette = palette,
