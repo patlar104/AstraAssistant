@@ -1,6 +1,7 @@
 package dev.patrick.astra.ui
 
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloat
@@ -13,8 +14,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.border
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -34,10 +37,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 import kotlin.math.hypot
+import dev.patrick.astra.ui.toPalette
 
 // Worst-case visual scale of the orb considering pulse + stretch animations.
 // These bounds are intentionally generous to ensure edge clamping is safe.
@@ -88,6 +92,16 @@ fun OverlayBubble(
     val blinkBaseMin = if (emotion == Emotion.Concerned || emotion == Emotion.Focused) 2500L else 3200L
     val blinkBaseMax = if (emotion == Emotion.Concerned || emotion == Emotion.Focused) 5200L else 6800L
 
+    val stateEnergy: Float = when (state) {
+        is AstraState.Idle -> 0.25f
+        is AstraState.Listening -> 0.6f
+        is AstraState.Thinking -> 0.5f
+        is AstraState.Speaking -> 0.9f
+        is AstraState.Error -> 0.8f
+    }
+
+    val palette = emotion.toPalette()
+
     // Launch a coroutine that triggers blinks at pseudo-random intervals
     LaunchedEffect(emotion) {
         while (true) {
@@ -99,29 +113,28 @@ fun OverlayBubble(
         }
     }
 
-    // Idle pulse - very subtle, long period so it's not distracting
-    val idlePulseScale by if (state is AstraState.Idle) {
-        val infinite = rememberInfiniteTransition(label = "idle_pulse")
-        infinite.animateFloat(
-            initialValue = 1f,
-            targetValue = 1.03f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(
-                    durationMillis = 9000,
-                    easing = FastOutSlowInEasing
-                ),
-                repeatMode = RepeatMode.Reverse
-            ),
-            label = "idle_pulse_anim"
-        )
-    } else {
-        // No pulse when not idle
-        animateFloatAsState(
-            targetValue = 1f,
-            animationSpec = tween(300),
-            label = "idle_no_pulse"
-        )
+    val infiniteTransition = rememberInfiniteTransition(label = "bubble_transition")
+
+    val baseDuration = when (state) {
+        is AstraState.Idle -> 2600
+        is AstraState.Listening -> 1800
+        is AstraState.Thinking -> 2200
+        is AstraState.Speaking -> 1400
+        is AstraState.Error -> 900
     }
+    val pulseAmplitude = 0.02f + stateEnergy * 0.015f
+    val idlePulseScale by infiniteTransition.animateFloat(
+        initialValue = 1f - pulseAmplitude,
+        targetValue = 1f + pulseAmplitude,
+        animationSpec = infiniteRepeatable(
+            animation = tween(
+                durationMillis = baseDuration,
+                easing = FastOutSlowInEasing
+            ),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "idle_pulse_anim"
+    )
 
     // Stretchy scale based on drag + state
     val targetStretchScale = when {
@@ -149,13 +162,10 @@ fun OverlayBubble(
     val combinedScaleX = stretchScale * squashScaleX
     val combinedScaleY = stretchScale * squashScaleY
 
-    // Aura intensity based on state/emotion
-    val auraAlphaTarget = when (state) {
-        is AstraState.Thinking -> 0.3f
-        is AstraState.Listening -> 0.22f
-        is AstraState.Speaking -> 0.25f
-        is AstraState.Error -> 0.35f
-        else -> 0.12f
+    val auraAlphaTarget = if (isDragging) {
+        0.8f + stateEnergy * 0.2f
+    } else {
+        0.3f + stateEnergy * 0.4f
     }
 
     val auraAlpha by animateFloatAsState(
@@ -202,6 +212,27 @@ fun OverlayBubble(
 
     val combinedEyeScaleY = baseEyeScaleY * blinkScaleY
     val combinedEyeAlpha = if (isBlinking) eyeAlpha * 0.4f else eyeAlpha
+
+    val errorShakeOffsetX by infiniteTransition.animateFloat(
+        initialValue = -2f,
+        targetValue = 2f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 180, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "error_shake_x"
+    )
+    val effectiveErrorOffsetX = if (state is AstraState.Error) errorShakeOffsetX else 0f
+
+    val thinkingRotation by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 2400, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "thinking_rotation"
+    )
 
     Box(
         modifier = modifier
@@ -260,18 +291,27 @@ fun OverlayBubble(
         val externalGazeY = gazeHintY ?: 0f
         val blendedGazeX = (eyeOffsetX * 0.7f) + (externalGazeX * 0.3f)
         val blendedGazeY = (eyeOffsetY * 0.7f) + (externalGazeY * 0.3f)
-        val gazeTranslateXPx = with(LocalDensity.current) { (blendedGazeX * maxEyeOffsetDp).dp.toPx() }
-        val gazeTranslateYPx = with(LocalDensity.current) { (blendedGazeY * maxEyeOffsetDp).dp.toPx() }
+        val density = LocalDensity.current
+        val gazeTranslateXPx = with(density) { (blendedGazeX * maxEyeOffsetDp).dp.toPx() }
+        val gazeTranslateYPx = with(density) { (blendedGazeY * maxEyeOffsetDp).dp.toPx() }
+        val auraSizeDp = when (state) {
+            is AstraState.Listening -> 60.dp
+            is AstraState.Speaking -> 64.dp
+            is AstraState.Thinking -> 58.dp
+            is AstraState.Error -> 60.dp
+            is AstraState.Idle -> 56.dp
+        }
 
         // Aura halo
         Box(
             modifier = Modifier
-                .size(56.dp)
+                .size(auraSizeDp)
                 .alpha(auraAlpha)
                 .background(
                     brush = Brush.radialGradient(
                         colors = listOf(
-                            MaterialTheme.colorScheme.primary.copy(alpha = 0.9f),
+                            palette.auraInner,
+                            palette.auraOuter,
                             Color.Transparent
                         )
                     ),
@@ -287,17 +327,45 @@ fun OverlayBubble(
         ) {
             Box(
                 modifier = Modifier
+                    .offset {
+                        IntOffset(
+                            with(density) { effectiveErrorOffsetX.dp.roundToPx() },
+                            0
+                        )
+                    }
                     .background(
-                        brush = Brush.linearGradient(
+                        brush = Brush.radialGradient(
                             colors = listOf(
-                                MaterialTheme.colorScheme.primary,
-                                MaterialTheme.colorScheme.secondary
+                                palette.core,
+                                palette.core.copy(alpha = 0.85f),
+                                Color.Black.copy(alpha = 0.15f)
                             )
                         ),
                         shape = CircleShape
                     ),
                 contentAlignment = Alignment.Center
             ) {
+                if (state is AstraState.Thinking) {
+                    Box(
+                        modifier = Modifier
+                            .size(46.dp)
+                            .graphicsLayer {
+                                rotationZ = thinkingRotation
+                            }
+                            .border(
+                                width = 1.dp,
+                                brush = Brush.sweepGradient(
+                                    listOf(
+                                        palette.auraInner.copy(alpha = 0.1f),
+                                        palette.auraInner.copy(alpha = 0.5f),
+                                        palette.auraInner.copy(alpha = 0.1f)
+                                    )
+                                ),
+                                shape = CircleShape
+                            )
+                    )
+                }
+
                 // Inner "eyes" – two glowing nodes, abstract like a premium AI presence
                 Box(
                     modifier = Modifier
@@ -320,8 +388,8 @@ fun OverlayBubble(
                             .background(
                                 brush = Brush.radialGradient(
                                     colors = listOf(
-                                        Color.White,
-                                        Color.White.copy(alpha = 0.2f),
+                                        palette.eye,
+                                        palette.eye.copy(alpha = 0.3f),
                                         Color.Transparent
                                     )
                                 ),
@@ -340,8 +408,8 @@ fun OverlayBubble(
                             .background(
                                 brush = Brush.radialGradient(
                                     colors = listOf(
-                                        Color.White,
-                                        Color.White.copy(alpha = 0.2f),
+                                        palette.eye,
+                                        palette.eye.copy(alpha = 0.3f),
                                         Color.Transparent
                                     )
                                 ),
