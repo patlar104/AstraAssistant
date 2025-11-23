@@ -97,24 +97,25 @@ class OverlayService :
         ).apply {
             // Use a simple top-start anchor; x/y are offsets from top-left
             gravity = Gravity.TOP or Gravity.START
-            x = screenWidth / 2
-            y = screenHeight / 2
+            val fallbackW = (56 * displayMetrics.density).toInt()
+            val fallbackH = (56 * displayMetrics.density).toInt()
+            val marginPx = (12 * displayMetrics.density).toInt()
+            x = screenWidth - fallbackW - marginPx
+            y = screenHeight / 2 - fallbackH / 2
         }
 
-        val bubbleMarginPx = (24 * displayMetrics.density).toInt()
+        val bubbleMarginPx = (12 * displayMetrics.density).toInt()
 
         // Final safety clamp before first show
-        val baseClampW = (64 * displayMetrics.density).toInt()
-        val baseClampH = (64 * displayMetrics.density).toInt()
-        val effectiveClampW = (baseClampW * BUBBLE_MAX_VISUAL_SCALE_X).toInt()
-        val effectiveClampH = (baseClampH * BUBBLE_MAX_VISUAL_SCALE_Y).toInt()
+        val baseClampW = (56 * displayMetrics.density).toInt()
+        val baseClampH = (56 * displayMetrics.density).toInt()
         params.x = params.x.coerceIn(
             bubbleMarginPx,
-            screenWidth - effectiveClampW - bubbleMarginPx
+            screenWidth - baseClampW - bubbleMarginPx
         )
         params.y = params.y.coerceIn(
             bubbleMarginPx,
-            screenHeight - effectiveClampH - bubbleMarginPx
+            screenHeight - baseClampH - bubbleMarginPx
         )
 
         lastWindowX = params.x
@@ -148,10 +149,11 @@ class OverlayService :
                         onDrag = { dx, dy ->
                             val layoutParams = params
 
-                            val w = if (bubbleWidthPx > 0) bubbleWidthPx else (64 * displayMetrics.density).toInt()
-                            val h = if (bubbleHeightPx > 0) bubbleHeightPx else (64 * displayMetrics.density).toInt()
-                            val effectiveW = (w * BUBBLE_MAX_VISUAL_SCALE_X).toInt()
-                            val effectiveH = (h * BUBBLE_MAX_VISUAL_SCALE_Y).toInt()
+                            val fallback = (56 * displayMetrics.density).toInt()
+                            val w = if (bubbleWidthPx > 0) bubbleWidthPx else fallback
+                            val h = if (bubbleHeightPx > 0) bubbleHeightPx else fallback
+                            val effectiveW = w
+                            val effectiveH = h
 
                             // Update raw position
                             layoutParams.x += dx.toInt()
@@ -177,15 +179,16 @@ class OverlayService :
                         onDragEnd = {
                             val layoutParams = params
 
-                            val w = if (bubbleWidthPx > 0) bubbleWidthPx else (64 * displayMetrics.density).toInt()
-                            val h = if (bubbleHeightPx > 0) bubbleHeightPx else (64 * displayMetrics.density).toInt()
-                            val effectiveW = (w * BUBBLE_MAX_VISUAL_SCALE_X).toInt()
-                            val effectiveH = (h * BUBBLE_MAX_VISUAL_SCALE_Y).toInt()
+                            val fallback = (56 * displayMetrics.density).toInt()
+                            val w = if (bubbleWidthPx > 0) bubbleWidthPx else fallback
+                            val h = if (bubbleHeightPx > 0) bubbleHeightPx else fallback
+                            val effectiveW = w
+                            val effectiveH = h
 
                             // Decide which edge to snap to based on current x
                             val midX = screenWidth / 2
                             val snappedX = if (lastWindowX > midX) {
-                                screenWidth - maxOf(effectiveW, bubbleMarginPxInner) - bubbleMarginPxInner
+                                screenWidth - effectiveW - bubbleMarginPxInner
                             } else {
                                 bubbleMarginPxInner
                             }

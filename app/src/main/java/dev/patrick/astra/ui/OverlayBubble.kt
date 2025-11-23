@@ -11,9 +11,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.defaultMinSize
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -31,6 +29,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import kotlin.math.abs
 import kotlin.math.hypot
@@ -41,7 +40,7 @@ import kotlin.math.roundToInt
 // These bounds are intentionally generous to ensure edge clamping is safe.
 const val BUBBLE_MAX_VISUAL_SCALE_X: Float = 1.25f
 const val BUBBLE_MAX_VISUAL_SCALE_Y: Float = 1.25f
-private const val ORB_PADDING_DP: Float = 8f
+private const val ORB_SIZE_DP: Float = 56f
 
 /**
  * Optimized Canvas-driven overlay orb:
@@ -240,17 +239,22 @@ fun OverlayBubble(
         (pulsePhase - 0.5f) * 5f
     } else 0f
 
+    val orbSizeDp = ORB_SIZE_DP.dp
+    val orbSizePx = with(LocalDensity.current) { orbSizeDp.toPx() }
+
     Box(
         modifier = modifier
-            .defaultMinSize(72.dp, 72.dp)
-            .padding(ORB_PADDING_DP.dp)
-            .onGloballyPositioned { coords ->
-                onLayoutChanged?.invoke(coords.size.width, coords.size.height)
-            }
-            .then(gestureModifier),
+            .size(orbSizeDp)
+            .onGloballyPositioned {
+                onLayoutChanged?.invoke(orbSizePx.toInt(), orbSizePx.toInt())
+            },
         contentAlignment = Alignment.Center
     ) {
-        Canvas(modifier = Modifier.fillMaxSize()) {
+        Canvas(
+            modifier = Modifier
+                .size(orbSizeDp)
+                .then(gestureModifier)
+        ) {
             drawOrb(
                 palette = palette,
                 energy = energy,
@@ -264,7 +268,8 @@ fun OverlayBubble(
                 thinkingPhase = thinkingPhase,
                 state = state,
                 errorShake = errorShake,
-                pulseScale = pulseScale
+                pulseScale = pulseScale,
+                baseSizePx = orbSizePx
             )
         }
     }
@@ -283,10 +288,11 @@ private fun DrawScope.drawOrb(
     thinkingPhase: Float,
     state: AstraState,
     errorShake: Float,
-    pulseScale: Float
+    pulseScale: Float,
+    baseSizePx: Float
 ) {
     val center = Offset(size.width / 2f + errorShake, size.height / 2f)
-    val minDim = min(size.width, size.height)
+    val minDim = min(baseSizePx, baseSizePx)
     val scaleFactor = min(combinedScaleX, combinedScaleY)
     val coreRadius = minDim * 0.18f * scaleFactor * pulseScale
     val auraRadius = minDim * 0.32f * scaleFactor * pulseScale
