@@ -40,7 +40,7 @@ import kotlin.math.roundToInt
 // These bounds are intentionally generous to ensure edge clamping is safe.
 const val BUBBLE_MAX_VISUAL_SCALE_X: Float = 1.25f
 const val BUBBLE_MAX_VISUAL_SCALE_Y: Float = 1.25f
-private const val ORB_SIZE_DP: Float = 56f
+private const val ORB_SIZE_DP: Float = 96f
 
 /**
  * Optimized Canvas-driven overlay orb:
@@ -294,8 +294,8 @@ private fun DrawScope.drawOrb(
     val center = Offset(size.width / 2f + errorShake, size.height / 2f)
     val minDim = min(baseSizePx, baseSizePx)
     val scaleFactor = min(combinedScaleX, combinedScaleY)
-    val coreRadius = minDim * 0.18f * scaleFactor * pulseScale
-    val auraRadius = minDim * 0.32f * scaleFactor * pulseScale
+    val coreRadius = minDim * 0.28f * scaleFactor * pulseScale
+    val auraRadius = minDim * 0.46f * scaleFactor * pulseScale
     val specRadius = coreRadius * 0.65f
 
     // Aura

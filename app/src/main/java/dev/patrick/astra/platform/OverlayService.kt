@@ -97,8 +97,8 @@ class OverlayService :
         ).apply {
             // Use a simple top-start anchor; x/y are offsets from top-left
             gravity = Gravity.TOP or Gravity.START
-            val fallbackW = (56 * displayMetrics.density).toInt()
-            val fallbackH = (56 * displayMetrics.density).toInt()
+            val fallbackW = (96 * displayMetrics.density).toInt()
+            val fallbackH = (96 * displayMetrics.density).toInt()
             val marginPx = (12 * displayMetrics.density).toInt()
             x = screenWidth - fallbackW - marginPx
             y = screenHeight / 2 - fallbackH / 2
@@ -107,8 +107,8 @@ class OverlayService :
         val bubbleMarginPx = (12 * displayMetrics.density).toInt()
 
         // Final safety clamp before first show
-        val baseClampW = (56 * displayMetrics.density).toInt()
-        val baseClampH = (56 * displayMetrics.density).toInt()
+        val baseClampW = (96 * displayMetrics.density).toInt()
+        val baseClampH = (96 * displayMetrics.density).toInt()
         params.x = params.x.coerceIn(
             bubbleMarginPx,
             screenWidth - baseClampW - bubbleMarginPx
@@ -149,7 +149,7 @@ class OverlayService :
                         onDrag = { dx, dy ->
                             val layoutParams = params
 
-                            val fallback = (56 * displayMetrics.density).toInt()
+                            val fallback = (96 * displayMetrics.density).toInt()
                             val w = if (bubbleWidthPx > 0) bubbleWidthPx else fallback
                             val h = if (bubbleHeightPx > 0) bubbleHeightPx else fallback
                             val effectiveW = w
@@ -179,7 +179,7 @@ class OverlayService :
                         onDragEnd = {
                             val layoutParams = params
 
-                            val fallback = (56 * displayMetrics.density).toInt()
+                            val fallback = (96 * displayMetrics.density).toInt()
                             val w = if (bubbleWidthPx > 0) bubbleWidthPx else fallback
                             val h = if (bubbleHeightPx > 0) bubbleHeightPx else fallback
                             val effectiveW = w
