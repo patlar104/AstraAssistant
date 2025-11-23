@@ -36,6 +36,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.input.pointer.changedToDownIgnoreConsumed
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.lerp
@@ -44,6 +45,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import kotlin.math.PI
 import kotlin.math.abs
+import kotlin.math.cos
 import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.min
@@ -52,6 +54,7 @@ import kotlin.math.sin
 import kotlin.random.Random
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 
 // NOTE: Old container scale (1.4x) made the window ~134dp while the orb visuals stay near 96dp,
 // which inflated the touch window and mismatched OverlayService bounds. Keep only a small pad.
@@ -95,6 +98,7 @@ fun OverlayBubble(
     }
     val paletteTarget = activeEmotion.toPalette()
     val energy = state.toEnergy()
+    val expressionTarget = remember(state, activeEmotion) { expressionFor(state, activeEmotion) }
 
     var isDragging by remember { mutableStateOf(false) }
     var dragMagnitude by remember { mutableStateOf(0f) }
@@ -114,6 +118,14 @@ fun OverlayBubble(
     var previousEmotionPalette by remember { mutableStateOf(paletteTarget) }
     var targetEmotionPalette by remember { mutableStateOf(paletteTarget) }
     val paletteBlend = remember { Animatable(1f) }
+    val expressionAnimSpec = remember { tween<Float>(durationMillis = 240, easing = FastOutSlowInEasing) }
+    val squashXAnim = remember { Animatable(expressionTarget.squashX) }
+    val squashYAnim = remember { Animatable(expressionTarget.squashY) }
+    val tiltAnim = remember { Animatable(expressionTarget.tiltDegrees) }
+    val wobbleAnim = remember { Animatable(expressionTarget.wobbleFactor) }
+    val eyeSeparationAnim = remember { Animatable(expressionTarget.eyeSeparationFactor) }
+    val eyeTiltAnim = remember { Animatable(expressionTarget.eyeTiltDegrees) }
+    val mouthCurveAnim = remember { Animatable(expressionTarget.mouthCurveAmount) }
 
     LaunchedEffect(paletteTarget) {
         val currentPalette = blendPalettes(previousEmotionPalette, targetEmotionPalette, paletteBlend.value)
@@ -127,6 +139,15 @@ fun OverlayBubble(
     }
 
     val currentPalette = blendPalettes(previousEmotionPalette, targetEmotionPalette, paletteBlend.value)
+    LaunchedEffect(expressionTarget) {
+        launch { squashXAnim.animateTo(expressionTarget.squashX, expressionAnimSpec) }
+        launch { squashYAnim.animateTo(expressionTarget.squashY, expressionAnimSpec) }
+        launch { tiltAnim.animateTo(expressionTarget.tiltDegrees, expressionAnimSpec) }
+        launch { wobbleAnim.animateTo(expressionTarget.wobbleFactor, expressionAnimSpec) }
+        launch { eyeSeparationAnim.animateTo(expressionTarget.eyeSeparationFactor, expressionAnimSpec) }
+        launch { eyeTiltAnim.animateTo(expressionTarget.eyeTiltDegrees, expressionAnimSpec) }
+        launch { mouthCurveAnim.animateTo(expressionTarget.mouthCurveAmount, expressionAnimSpec) }
+    }
 
     val infinite = rememberInfiniteTransition(label = "orb_global")
 
@@ -256,6 +277,23 @@ fun OverlayBubble(
         animationSpec = tween(200),
         label = "eye_scale_y"
     )
+
+    val expressionSquashX = squashXAnim.value
+    val expressionSquashY = squashYAnim.value
+    val expressionWobble = wobbleAnim.value
+    val expressionTilt = tiltAnim.value
+    val expressionEyeSeparation = eyeSeparationAnim.value
+    val expressionEyeTilt = eyeTiltAnim.value
+    val expressionMouthCurve = mouthCurveAnim.value
+    val wobbleWave = sin((pulsePhase * 2f * PI).toDouble()).toFloat()
+    val wobbleStretch = wobbleWave * expressionWobble * 0.35f
+    val squashXWithWobble = expressionSquashX * (1f + wobbleStretch)
+    val squashYWithWobble = expressionSquashY * (1f - wobbleStretch * 0.85f)
+    val tiltFromWobble = wobbleWave * expressionWobble * 2.2f
+    val tiltThinking = if (state is AstraState.Thinking) {
+        sin(Math.toRadians(thinkingPhase.toDouble())).toFloat() * 1.5f
+    } else 0f
+    val finalTilt = expressionTilt + tiltFromWobble + tiltThinking
 
     // NOTE: Prior hitbox equaled the 96dp core while glow extended past it, so edges could clip and
     // the invisible window size differed from what OverlayService assumed. Use a larger visual
@@ -443,7 +481,13 @@ fun OverlayBubble(
                 errorShake = errorShake,
                 baseSizePx = baseSizePx,
                 breathingScale = breathingScale,
-                auraScale = auraScale
+                auraScale = auraScale,
+                squashX = squashXWithWobble,
+                squashY = squashYWithWobble,
+                tiltDegrees = finalTilt,
+                eyeSeparationFactor = expressionEyeSeparation,
+                eyeTiltDegrees = expressionEyeTilt,
+                mouthCurve = expressionMouthCurve
             )
         }
 
@@ -472,118 +516,157 @@ private fun DrawScope.drawOrb(
     errorShake: Float,
     baseSizePx: Float,
     breathingScale: Float,
-    auraScale: Float
+    auraScale: Float,
+    squashX: Float,
+    squashY: Float,
+    tiltDegrees: Float,
+    eyeSeparationFactor: Float,
+    eyeTiltDegrees: Float,
+    mouthCurve: Float
 ) {
     val center = Offset(size.width / 2f + errorShake, size.height / 2f)
     val orbDiameterPx = baseSizePx.coerceAtMost(min(size.width, size.height))
-    val orbScale = min(combinedScaleX, combinedScaleY)
-    val coreRadius = orbDiameterPx * CORE_RADIUS_RATIO * orbScale * breathingScale
-    val auraRadius = orbDiameterPx * AURA_RADIUS_RATIO * orbScale * auraScale
-    val outerGlowRadius = auraRadius * OUTER_GLOW_MULTIPLIER
-    val specRadius = coreRadius * 0.55f
+    val baseCoreRadius = orbDiameterPx * CORE_RADIUS_RATIO
+    val baseAuraRadius = orbDiameterPx * AURA_RADIUS_RATIO
+    val globalScaleX = combinedScaleX * breathingScale
+    val globalScaleY = combinedScaleY * breathingScale
+    val coreRadiusX = baseCoreRadius * squashX * globalScaleX
+    val coreRadiusY = baseCoreRadius * squashY * globalScaleY
+    val auraRadiusX = baseAuraRadius * squashX * combinedScaleX * auraScale
+    val auraRadiusY = baseAuraRadius * squashY * combinedScaleY * auraScale
+    val outerGlowRadiusX = auraRadiusX * OUTER_GLOW_MULTIPLIER
+    val outerGlowRadiusY = auraRadiusY * OUTER_GLOW_MULTIPLIER
+    val specRadius = min(coreRadiusX, coreRadiusY) * 0.55f
     val glowEnergyFactor = 0.85f + energy.energy * 0.15f
+    val eyeRadius = min(coreRadiusX, coreRadiusY) * 0.22f
+    val baseEyeOffsetX = coreRadiusX * 0.35f * eyeSeparationFactor
+    val baseEyeOffsetY = -coreRadiusY * 0.2f
+    val eyeMoodShift = -mouthCurve * eyeRadius * 0.18f
+    val eyeTiltedLeft = rotateOffset(Offset(-baseEyeOffsetX, baseEyeOffsetY + eyeMoodShift), eyeTiltDegrees)
+    val eyeTiltedRight = rotateOffset(Offset(baseEyeOffsetX, baseEyeOffsetY + eyeMoodShift), eyeTiltDegrees)
+    val pupilOffset = Offset(eyeGazeX * eyeRadius, eyeGazeY * eyeRadius)
+    val blendedMouthColor = lerp(palette.coreColor, palette.eyeColor, 0.35f)
+    val mouthColor = if (mouthCurve < 0f) lerp(blendedMouthColor, Color.Black, 0.25f) else blendedMouthColor
+    val mouthArcRadiusX = coreRadiusX * 0.7f
+    val mouthArcRadiusY = coreRadiusY * 0.45f
+    val mouthYOffset = coreRadiusY * 0.45f
+    val mouthAlpha = (0.08f + abs(mouthCurve) * 0.08f).coerceIn(0f, 0.16f)
+    val mouthThickness = max(1.dp.toPx(), mouthArcRadiusY * 0.08f)
+    val mouthT = ((mouthCurve + 1f) * 0.5f).coerceIn(0f, 1f)
+    val mouthStart = lerpFloat(160f, 200f, mouthT)
+    val mouthSweep = lerpFloat(180f, 140f, mouthT)
+    val focusRadiusX = coreRadiusX * 1.08f
+    val focusRadiusY = coreRadiusY * 1.08f
+    val focusWidth = max(2.dp.toPx(), min(3.dp.toPx(), min(coreRadiusX, coreRadiusY) * 0.06f))
+    val arcColor = palette.glowColor.copy(alpha = 0.65f)
+    val specOffset = Offset(-coreRadiusX * 0.35f, -coreRadiusY * 0.35f)
 
-    // Aura
-    drawCircle(
-        brush = Brush.radialGradient(
-            colors = listOf(
-                palette.auraColor.copy(alpha = auraAlpha * 0.75f),
-                palette.auraColor.copy(alpha = auraAlpha * 0.45f),
-                Color.Transparent
-            )
-        ),
-        radius = auraRadius,
-        center = center
-    )
-    // Soft outer glow
-    drawCircle(
-        brush = Brush.radialGradient(
-            colors = listOf(
-                palette.glowColor.copy(alpha = auraAlpha * 0.28f * glowEnergyFactor),
-                Color.Transparent
-            )
-        ),
-        radius = outerGlowRadius,
-        center = center
-    )
+    withTransform({
+        translate(center.x, center.y)
+        rotate(tiltDegrees)
+    }) {
+        drawOval(
+            brush = Brush.radialGradient(
+                colors = listOf(
+                    palette.auraColor.copy(alpha = auraAlpha * 0.75f),
+                    palette.auraColor.copy(alpha = auraAlpha * 0.45f),
+                    Color.Transparent
+                ),
+                center = Offset.Zero,
+                radius = max(auraRadiusX, auraRadiusY)
+            ),
+            topLeft = Offset(-auraRadiusX, -auraRadiusY),
+            size = Size(auraRadiusX * 2, auraRadiusY * 2)
+        )
+        drawOval(
+            brush = Brush.radialGradient(
+                colors = listOf(
+                    palette.glowColor.copy(alpha = auraAlpha * 0.28f * glowEnergyFactor),
+                    Color.Transparent
+                ),
+                center = Offset.Zero,
+                radius = max(outerGlowRadiusX, outerGlowRadiusY)
+            ),
+            topLeft = Offset(-outerGlowRadiusX, -outerGlowRadiusY),
+            size = Size(outerGlowRadiusX * 2, outerGlowRadiusY * 2)
+        )
 
-    // Thinking ring
-    if (state is AstraState.Thinking) {
-        val focusRadius = coreRadius * 1.08f
-        val focusWidth = max(2.dp.toPx(), min(3.dp.toPx(), coreRadius * 0.06f))
-        val arcColor = palette.glowColor.copy(alpha = 0.65f)
-        rotate(thinkingPhase, center) {
-            drawArc(
-                color = arcColor,
-                startAngle = -80f,
-                sweepAngle = 110f,
-                useCenter = false,
-                topLeft = Offset(center.x - focusRadius, center.y - focusRadius),
-                size = Size(focusRadius * 2, focusRadius * 2),
-                style = Stroke(width = focusWidth)
+        if (state is AstraState.Thinking) {
+            rotate(thinkingPhase, Offset.Zero) {
+                drawArc(
+                    color = arcColor,
+                    startAngle = -80f,
+                    sweepAngle = 110f,
+                    useCenter = false,
+                    topLeft = Offset(-focusRadiusX, -focusRadiusY),
+                    size = Size(focusRadiusX * 2, focusRadiusY * 2),
+                    style = Stroke(width = focusWidth)
+                )
+            }
+        }
+
+        drawOval(
+            brush = Brush.radialGradient(
+                colors = listOf(
+                    palette.coreColor,
+                    palette.coreColor.copy(alpha = 0.82f),
+                    Color.Black.copy(alpha = 0.2f)
+                ),
+                center = Offset.Zero,
+                radius = max(coreRadiusX, coreRadiusY)
+            ),
+            topLeft = Offset(-coreRadiusX, -coreRadiusY),
+            size = Size(coreRadiusX * 2, coreRadiusY * 2)
+        )
+
+        drawOval(
+            brush = Brush.radialGradient(
+                colors = listOf(
+                    Color.White.copy(alpha = 0.24f),
+                    Color.Transparent
+                ),
+                center = specOffset,
+                radius = specRadius
+            ),
+            topLeft = Offset(specOffset.x - specRadius, specOffset.y - specRadius),
+            size = Size(specRadius * 2, specRadius * 2)
+        )
+
+        if (state is AstraState.Error) {
+            drawOval(
+                color = Color(0x66FF7043),
+                topLeft = Offset(-coreRadiusX, -coreRadiusY),
+                size = Size(coreRadiusX * 2, coreRadiusY * 2)
             )
         }
-    }
 
-    // Core orb
-    drawCircle(
-        brush = Brush.radialGradient(
-            colors = listOf(
-                palette.coreColor,
-                palette.coreColor.copy(alpha = 0.82f),
-                Color.Black.copy(alpha = 0.2f)
-            )
-        ),
-        radius = coreRadius,
-        center = center
-    )
+        drawArc(
+            color = mouthColor.copy(alpha = mouthAlpha),
+            startAngle = mouthStart,
+            sweepAngle = mouthSweep,
+            useCenter = false,
+            topLeft = Offset(-mouthArcRadiusX, mouthYOffset - mouthArcRadiusY),
+            size = Size(mouthArcRadiusX * 2, mouthArcRadiusY * 2),
+            style = Stroke(width = mouthThickness)
+        )
 
-    // Specular highlight
-    drawCircle(
-        brush = Brush.radialGradient(
-            colors = listOf(
-                Color.White.copy(alpha = 0.24f),
-                Color.Transparent
-            )
-        ),
-        radius = specRadius,
-        center = center + Offset(-coreRadius * 0.4f, -coreRadius * 0.4f)
-    )
-
-    // Error overlay
-    if (state is AstraState.Error) {
-        drawCircle(
-            color = Color(0x66FF7043),
-            radius = coreRadius,
-            center = center
+        drawEye(
+            center = eyeTiltedLeft,
+            radius = eyeRadius,
+            heightScale = eyeScaleY,
+            alpha = eyeAlpha,
+            palette = palette,
+            pupilOffset = pupilOffset
+        )
+        drawEye(
+            center = eyeTiltedRight,
+            radius = eyeRadius,
+            heightScale = eyeScaleY,
+            alpha = eyeAlpha,
+            palette = palette,
+            pupilOffset = pupilOffset
         )
     }
-
-    // Eyes
-    val eyeRadius = coreRadius * 0.22f
-    val eyeOffsetX = coreRadius * 0.35f
-    val eyeOffsetY = -coreRadius * 0.2f
-    val pupilOffset = Offset(eyeGazeX * eyeRadius, eyeGazeY * eyeRadius)
-
-    val leftEyeCenter = center + Offset(-eyeOffsetX, eyeOffsetY)
-    val rightEyeCenter = center + Offset(eyeOffsetX, eyeOffsetY)
-
-    drawEye(
-        center = leftEyeCenter,
-        radius = eyeRadius,
-        heightScale = eyeScaleY,
-        alpha = eyeAlpha,
-        palette = palette,
-        pupilOffset = pupilOffset
-    )
-    drawEye(
-        center = rightEyeCenter,
-        radius = eyeRadius,
-        heightScale = eyeScaleY,
-        alpha = eyeAlpha,
-        palette = palette,
-        pupilOffset = pupilOffset
-    )
 }
 
 private fun DrawScope.drawEye(
@@ -600,7 +683,9 @@ private fun DrawScope.drawEye(
                 palette.eyeColor.copy(alpha = alpha),
                 palette.eyeColor.copy(alpha = alpha * 0.3f),
                 Color.Transparent
-            )
+            ),
+            center = center,
+            radius = radius
         ),
         topLeft = Offset(center.x - radius, center.y - radius * heightScale),
         size = Size(radius * 2, radius * 2 * heightScale)
@@ -615,9 +700,25 @@ private fun DrawScope.drawEye(
                 palette.eyeColor.copy(alpha = alpha),
                 palette.eyeColor.copy(alpha = alpha * 0.4f),
                 Color.Transparent
-            )
+            ),
+            center = pupilCenter,
+            radius = pupilRadius
         ),
         radius = pupilRadius,
         center = pupilCenter
     )
+}
+
+private fun rotateOffset(offset: Offset, degrees: Float): Offset {
+    val rad = Math.toRadians(degrees.toDouble())
+    val cosA = cos(rad).toFloat()
+    val sinA = sin(rad).toFloat()
+    return Offset(
+        x = offset.x * cosA - offset.y * sinA,
+        y = offset.x * sinA + offset.y * cosA
+    )
+}
+
+private fun lerpFloat(start: Float, end: Float, t: Float): Float {
+    return start + (end - start) * t
 }
