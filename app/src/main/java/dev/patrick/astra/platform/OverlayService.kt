@@ -39,7 +39,7 @@ import kotlin.math.roundToInt
  * Summary:
  * - Bounds use actual measured bubble size (fallback = 96dp * 1.1) with 12dp margins.
  * - Drag clamps use coerceAtLeast to avoid empty ranges; snap uses same dimensions.
- * - OverlayBubble delivers onTap/onDragDelta/onPressChange without extra hitbox padding.
+ * - OverlayBubble delivers onTap/onDrag/onPressChange without extra hitbox padding.
  */
 class OverlayService :
     LifecycleService(),
@@ -152,7 +152,10 @@ class OverlayService :
                         onTap = {
                             bringMainActivityToFront()
                         },
-                        onDragDelta = { dx, dy ->
+                        onLongPress = {
+                            // Future: radial menu or quick actions
+                        },
+                        onDrag = { dx, dy ->
                             val layoutParams = params
 
                             val effectiveW = if (bubbleWidthPx > 0) bubbleWidthPx else fallbackBubbleSizePx
@@ -206,9 +209,6 @@ class OverlayService :
                             lastWindowY = layoutParams.y
 
                             wm?.updateViewLayout(this@apply, layoutParams)
-                        },
-                        onLongPress = {
-                            // Future: radial menu or quick actions
                         },
                         onLayoutChanged = { widthPx, heightPx ->
                             bubbleWidthPx = widthPx
