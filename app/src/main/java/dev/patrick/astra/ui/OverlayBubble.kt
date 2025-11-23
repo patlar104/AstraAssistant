@@ -1,47 +1,41 @@
 package dev.patrick.astra.ui
 
-import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.background
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.offset
-import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.border
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.draw.scale
-import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
-import kotlinx.coroutines.delay
+import kotlin.math.abs
 import kotlin.math.hypot
-import dev.patrick.astra.ui.toPalette
+import kotlin.math.min
+import kotlin.math.roundToInt
 
 // Worst-case visual scale of the orb considering pulse + stretch animations.
 // These bounds are intentionally generous to ensure edge clamping is safe.
@@ -50,23 +44,18 @@ const val BUBBLE_MAX_VISUAL_SCALE_Y: Float = 1.25f
 private const val ORB_PADDING_DP: Float = 8f
 
 /**
- * Premium draggable Astra orb bubble with:
- * - Stretchy "gel" effect while dragging (scale + squash).
- * - Idle pulse (subtle for OLED).
- * - State-driven aura/emotion.
+ * Optimized Canvas-driven overlay orb:
+ * - Single drawing surface to reduce overdraw.
+ * - Centralized animations to limit recompositions.
+ * - Preserves drag/gaze/blink and state-driven visuals.
  *
- * Drag is handled in Compose, but actual window movement is delegated via:
- * - onDrag(dx, dy)
- * - onDragEnd()
- *
- * OverlayService is responsible for translating dx/dy into WindowManager.LayoutParams updates.
+ * OverlayService remains responsible for translating dx/dy into WindowManager.LayoutParams updates.
  */
 @Composable
 fun OverlayBubble(
     modifier: Modifier = Modifier,
     state: AstraState = AstraState.Idle,
     emotion: Emotion = Emotion.Neutral,
-    // Optional external gaze hint in logical -1f..+1f range
     gazeHintX: Float? = null,
     gazeHintY: Float? = null,
     onClick: () -> Unit,
@@ -75,349 +64,358 @@ fun OverlayBubble(
     onLongPress: (() -> Unit)? = null,
     onLayoutChanged: ((widthPx: Int, heightPx: Int) -> Unit)? = null
 ) {
-    // Is the user currently dragging?
+    val palette = emotion.toPalette()
+    val energy = state.toEnergy()
+
     var isDragging by remember { mutableStateOf(false) }
-
-    // Last drag vector magnitude (used to fake a velocity-ish feel)
-    var lastDragMagnitude by remember { mutableStateOf(0f) }
-
-    // Blinking state
-    var isBlinking by remember { mutableStateOf(false) }
-
-    // Gaze offsets in logical units, later converted to px in graphicsLayer
+    var dragMagnitude by remember { mutableStateOf(0f) }
     var eyeOffsetX by remember { mutableStateOf(0f) }
     var eyeOffsetY by remember { mutableStateOf(0f) }
 
-    // Emotional blink modulation: concerned/focused blink slightly more often
-    val blinkBaseMin = if (emotion == Emotion.Concerned || emotion == Emotion.Focused) 2500L else 3200L
-    val blinkBaseMax = if (emotion == Emotion.Concerned || emotion == Emotion.Focused) 5200L else 6800L
+    val clickCb by rememberUpdatedState(onClick)
+    val dragCb by rememberUpdatedState(onDrag)
+    val dragEndCb by rememberUpdatedState(onDragEnd)
+    val longPressCb by rememberUpdatedState(onLongPress)
 
-    val stateEnergy: Float = when (state) {
-        is AstraState.Idle -> 0.25f
-        is AstraState.Listening -> 0.6f
-        is AstraState.Thinking -> 0.5f
-        is AstraState.Speaking -> 0.9f
-        is AstraState.Error -> 0.8f
-    }
+    val infinite = rememberInfiniteTransition(label = "orb_global")
 
-    val palette = emotion.toPalette()
-
-    // Launch a coroutine that triggers blinks at pseudo-random intervals
-    LaunchedEffect(emotion) {
-        while (true) {
-            val delayMillis = (blinkBaseMin..blinkBaseMax).random()
-            delay(delayMillis)
-            isBlinking = true
-            delay(80L)
-            isBlinking = false
-        }
-    }
-
-    val infiniteTransition = rememberInfiniteTransition(label = "bubble_transition")
-
-    val baseDuration = when (state) {
-        is AstraState.Idle -> 2600
-        is AstraState.Listening -> 1800
-        is AstraState.Thinking -> 2200
-        is AstraState.Speaking -> 1400
-        is AstraState.Error -> 900
-    }
-    val pulseAmplitude = 0.02f + stateEnergy * 0.015f
-    val idlePulseScale by infiniteTransition.animateFloat(
-        initialValue = 1f - pulseAmplitude,
-        targetValue = 1f + pulseAmplitude,
+    val pulsePhase by infinite.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
         animationSpec = infiniteRepeatable(
             animation = tween(
-                durationMillis = baseDuration,
-                easing = FastOutSlowInEasing
+                durationMillis = (2200 / energy.pulseSpeedScale).roundToInt(),
+                easing = LinearEasing
             ),
-            repeatMode = RepeatMode.Reverse
+            repeatMode = androidx.compose.animation.core.RepeatMode.Restart
         ),
-        label = "idle_pulse_anim"
+        label = "pulse_phase"
     )
 
-    // Stretchy scale based on drag + state
-    val targetStretchScale = when {
-        isDragging -> 1.1f
-        state is AstraState.Listening -> 1.06f
-        state is AstraState.Speaking -> 1.04f
-        else -> 1f
-    }
-
-    val stretchScale by animateFloatAsState(
-        targetValue = targetStretchScale,
-        animationSpec = spring(
-            dampingRatio = Spring.DampingRatioLowBouncy,
-            stiffness = Spring.StiffnessMedium
-        ),
-        label = "stretch_scale"
-    )
-
-    // We can subtly squash the orb opposite the drag direction using lastDragMagnitude,
-    // but to keep this simple & safe, we just derive a secondary factor from it:
-    val dragIntensity = (lastDragMagnitude / 40f).coerceIn(0f, 0.18f)
-    val squashScaleY = 1f - (if (isDragging) dragIntensity else 0f)
-    val squashScaleX = 1f + (if (isDragging) dragIntensity else 0f)
-
-    val combinedScaleX = stretchScale * squashScaleX
-    val combinedScaleY = stretchScale * squashScaleY
-
-    val auraAlphaTarget = if (isDragging) {
-        0.8f + stateEnergy * 0.2f
-    } else {
-        0.3f + stateEnergy * 0.4f
-    }
-
-    val auraAlpha by animateFloatAsState(
-        targetValue = auraAlphaTarget,
-        animationSpec = tween(400),
-        label = "aura_alpha"
-    )
-
-    // Eye brightness based on emotion
-    val eyeAlphaTarget = when (emotion) {
-        Emotion.Happy, Emotion.Excited -> 1f
-        Emotion.Curious, Emotion.Focused -> 0.9f
-        Emotion.Concerned -> 0.75f
-        Emotion.Neutral -> 0.85f
-    }
-
-    val eyeAlpha by animateFloatAsState(
-        targetValue = eyeAlphaTarget,
-        animationSpec = tween(250),
-        label = "eye_alpha"
-    )
-
-    // Additional shape changes based on emotion
-    val baseEyeScaleYTarget = when (emotion) {
-        Emotion.Focused, Emotion.Concerned -> 0.7f
-        Emotion.Excited -> 1.1f
-        Emotion.Happy -> 1.0f
-        Emotion.Curious -> 0.9f
-        Emotion.Neutral -> 0.95f
-    }
-
-    val baseEyeScaleY by animateFloatAsState(
-        targetValue = baseEyeScaleYTarget,
-        animationSpec = tween(220),
-        label = "eye_emotion_scaleY"
-    )
-
-    val blinkScaleYTarget = if (isBlinking) 0.1f else 1f
-    val blinkScaleY by animateFloatAsState(
-        targetValue = blinkScaleYTarget,
-        animationSpec = tween(durationMillis = if (isBlinking) 70 else 120),
-        label = "eye_blink_scaleY"
-    )
-
-    val combinedEyeScaleY = baseEyeScaleY * blinkScaleY
-    val combinedEyeAlpha = if (isBlinking) eyeAlpha * 0.4f else eyeAlpha
-
-    val errorShakeOffsetX by infiniteTransition.animateFloat(
-        initialValue = -2f,
-        targetValue = 2f,
+    val blinkPhase by infinite.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
         animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 180, easing = LinearEasing),
-            repeatMode = RepeatMode.Reverse
+            animation = tween(durationMillis = 3600, easing = LinearEasing),
+            repeatMode = androidx.compose.animation.core.RepeatMode.Restart
         ),
-        label = "error_shake_x"
+        label = "blink_phase"
     )
-    val effectiveErrorOffsetX = if (state is AstraState.Error) errorShakeOffsetX else 0f
 
-    val thinkingRotation by infiniteTransition.animateFloat(
+    val thinkingPhase by infinite.animateFloat(
         initialValue = 0f,
         targetValue = 360f,
         animationSpec = infiniteRepeatable(
             animation = tween(durationMillis = 2400, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
+            repeatMode = androidx.compose.animation.core.RepeatMode.Restart
         ),
-        label = "thinking_rotation"
+        label = "thinking_phase"
     )
+
+    val targetStretchScale = when {
+        isDragging -> 1.04f + (dragMagnitude / 70f).coerceIn(0f, 0.06f)
+        state is AstraState.Listening -> 1.035f
+        state is AstraState.Speaking -> 1.045f
+        else -> 1f
+    }.coerceAtMost(1.1f)
+
+    val stretchScale by animateFloatAsState(
+        targetValue = targetStretchScale,
+        animationSpec = spring(
+            dampingRatio = 0.7f,
+            stiffness = 300f
+        ),
+        label = "stretch_scale"
+    )
+
+    val blinkActive = when (state) {
+        is AstraState.Idle, is AstraState.Listening -> blinkPhase > 0.92f
+        else -> blinkPhase > 0.96f
+    }
+
+    val blinkScaleYTarget = if (blinkActive) 0.1f else 1f
+    val blinkScaleY by animateFloatAsState(
+        targetValue = blinkScaleYTarget,
+        animationSpec = tween(durationMillis = if (blinkActive) 80 else 140),
+        label = "blink_scale"
+    )
+
+    val auraAlphaTarget = if (isDragging) {
+        0.55f + energy.energy * 0.3f
+    } else {
+        0.22f + energy.energy * 0.4f
+    }
+
+    val auraAlpha by animateFloatAsState(
+        targetValue = auraAlphaTarget * energy.auraBoost,
+        animationSpec = tween(300),
+        label = "aura_alpha"
+    )
+
+    val eyeBaseAlpha = when (emotion) {
+        Emotion.Excited, Emotion.Happy -> 1f
+        Emotion.Curious, Emotion.Focused -> 0.94f
+        Emotion.Neutral -> 0.88f
+        Emotion.Concerned -> 0.8f
+    }
+    val eyeAlpha by animateFloatAsState(
+        targetValue = if (blinkActive) eyeBaseAlpha * 0.35f else eyeBaseAlpha,
+        animationSpec = tween(180),
+        label = "eye_alpha"
+    )
+
+    val baseEyeScaleYTarget = when (emotion) {
+        Emotion.Focused, Emotion.Concerned -> 0.68f
+        Emotion.Excited -> 1.05f
+        Emotion.Happy -> 1.0f
+        Emotion.Curious -> 0.9f
+        Emotion.Neutral -> 0.94f
+    }
+
+    val eyeScaleY by animateFloatAsState(
+        targetValue = baseEyeScaleYTarget * blinkScaleY,
+        animationSpec = tween(200),
+        label = "eye_scale_y"
+    )
+
+    val gestureModifier = Modifier
+        .pointerInput(Unit) {
+            detectDragGestures(
+                onDragStart = {
+                    isDragging = true
+                },
+                onDragEnd = {
+                    isDragging = false
+                    dragMagnitude = 0f
+                    eyeOffsetX = 0f
+                    eyeOffsetY = 0f
+                    dragEndCb()
+                },
+                onDragCancel = {
+                    isDragging = false
+                    dragMagnitude = 0f
+                    eyeOffsetX = 0f
+                    eyeOffsetY = 0f
+                    dragEndCb()
+                },
+                onDrag = { change, dragAmount ->
+                    change.consume()
+                    val (dx, dy) = dragAmount
+                    dragMagnitude = hypot(dx, dy)
+                    val normX = (dx / 40f).coerceIn(-1f, 1f)
+                    val normY = (dy / 40f).coerceIn(-1f, 1f)
+                    eyeOffsetX = normX
+                    eyeOffsetY = normY
+                    dragCb(dx, dy)
+                }
+            )
+        }
+        .pointerInput(Unit) {
+            detectTapGestures(
+                onTap = { clickCb() },
+                onLongPress = { longPressCb?.invoke() }
+            )
+        }
+
+    val maxEyeOffset = 0.14f
+    val externalGazeX = gazeHintX ?: 0f
+    val externalGazeY = gazeHintY ?: 0f
+    val blendedGazeX = (eyeOffsetX * 0.7f) + (externalGazeX * 0.3f)
+    val blendedGazeY = (eyeOffsetY * 0.7f) + (externalGazeY * 0.3f)
+    val eyeGazeX = (blendedGazeX.coerceIn(-1f, 1f)) * maxEyeOffset
+    val eyeGazeY = (blendedGazeY.coerceIn(-1f, 1f)) * maxEyeOffset
+
+    val pulseScale = run {
+        val wave = (0.5f - abs(pulsePhase - 0.5f)) * 2f // triangle 0..1
+        val baseAmplitude = 0.03f
+        val pulseAmplitude = baseAmplitude * (0.3f + energy.energy * 0.7f)
+        1f + (pulseAmplitude * (wave - 0.5f) * 2f)
+    }
+
+    val squashFactor = if (isDragging) (dragMagnitude / 70f).coerceIn(0f, 0.12f) else 0f
+    val combinedScaleX = pulseScale * stretchScale * (1f + squashFactor)
+    val combinedScaleY = pulseScale * stretchScale * (1f - squashFactor * 0.8f)
+
+    val errorShake = if (state is AstraState.Error) {
+        (pulsePhase - 0.5f) * 5f
+    } else 0f
 
     Box(
         modifier = modifier
-            // Add invisible padding so animated scale never clips against the view bounds.
+            .defaultMinSize(72.dp, 72.dp)
             .padding(ORB_PADDING_DP.dp)
-            .onGloballyPositioned { layoutCoordinates ->
-                val size = layoutCoordinates.size
-                onLayoutChanged?.invoke(size.width, size.height)
+            .onGloballyPositioned { coords ->
+                onLayoutChanged?.invoke(coords.size.width, coords.size.height)
             }
-            .pointerInput(Unit) {
-                detectDragGestures(
-                    onDragStart = {
-                        isDragging = true
-                    },
-                    onDrag = { change, dragAmount ->
-                        change.consume()
-                        val (dx, dy) = dragAmount
-                        lastDragMagnitude = hypot(dx, dy)
-
-                        // Update gaze based on drag direction
-                        val normX = (dx / 40f).coerceIn(-1f, 1f)
-                        val normY = (dy / 40f).coerceIn(-1f, 1f)
-                        eyeOffsetX = normX
-                        eyeOffsetY = normY
-
-                        onDrag(dx, dy)
-                    },
-                    onDragEnd = {
-                        isDragging = false
-                        lastDragMagnitude = 0f
-                        eyeOffsetX = 0f
-                        eyeOffsetY = 0f
-                        onDragEnd()
-                    },
-                    onDragCancel = {
-                        isDragging = false
-                        lastDragMagnitude = 0f
-                        eyeOffsetX = 0f
-                        eyeOffsetY = 0f
-                        onDragEnd()
-                    }
-                )
-            }
-            .pointerInput(Unit) {
-                detectTapGestures(
-                    onTap = { onClick() },
-                    onLongPress = { onLongPress?.invoke() }
-                )
-            }
-            .scale(idlePulseScale)
-            .scale(scaleX = combinedScaleX, scaleY = combinedScaleY),
+            .then(gestureModifier),
         contentAlignment = Alignment.Center
     ) {
-        val maxEyeOffsetDp = 3f
-        val externalGazeX = gazeHintX ?: 0f
-        val externalGazeY = gazeHintY ?: 0f
-        val blendedGazeX = (eyeOffsetX * 0.7f) + (externalGazeX * 0.3f)
-        val blendedGazeY = (eyeOffsetY * 0.7f) + (externalGazeY * 0.3f)
-        val density = LocalDensity.current
-        val gazeTranslateXPx = with(density) { (blendedGazeX * maxEyeOffsetDp).dp.toPx() }
-        val gazeTranslateYPx = with(density) { (blendedGazeY * maxEyeOffsetDp).dp.toPx() }
-        val auraSizeDp = when (state) {
-            is AstraState.Listening -> 60.dp
-            is AstraState.Speaking -> 64.dp
-            is AstraState.Thinking -> 58.dp
-            is AstraState.Error -> 60.dp
-            is AstraState.Idle -> 56.dp
-        }
-
-        // Aura halo
-        Box(
-            modifier = Modifier
-                .size(auraSizeDp)
-                .alpha(auraAlpha)
-                .background(
-                    brush = Brush.radialGradient(
-                        colors = listOf(
-                            palette.auraInner,
-                            palette.auraOuter,
-                            Color.Transparent
-                        )
-                    ),
-                    shape = CircleShape
-                )
-        )
-
-        // Orb body surface
-        Surface(
-            modifier = Modifier.size(52.dp),
-            shape = CircleShape,
-            color = Color.Transparent
-        ) {
-            Box(
-                modifier = Modifier
-                    .offset {
-                        IntOffset(
-                            with(density) { effectiveErrorOffsetX.dp.roundToPx() },
-                            0
-                        )
-                    }
-                    .background(
-                        brush = Brush.radialGradient(
-                            colors = listOf(
-                                palette.core,
-                                palette.core.copy(alpha = 0.85f),
-                                Color.Black.copy(alpha = 0.15f)
-                            )
-                        ),
-                        shape = CircleShape
-                    ),
-                contentAlignment = Alignment.Center
-            ) {
-                if (state is AstraState.Thinking) {
-                    Box(
-                        modifier = Modifier
-                            .size(46.dp)
-                            .graphicsLayer {
-                                rotationZ = thinkingRotation
-                            }
-                            .border(
-                                width = 1.dp,
-                                brush = Brush.sweepGradient(
-                                    listOf(
-                                        palette.auraInner.copy(alpha = 0.1f),
-                                        palette.auraInner.copy(alpha = 0.5f),
-                                        palette.auraInner.copy(alpha = 0.1f)
-                                    )
-                                ),
-                                shape = CircleShape
-                            )
-                    )
-                }
-
-                // Inner "eyes" – two glowing nodes, abstract like a premium AI presence
-                Box(
-                    modifier = Modifier
-                        .size(30.dp)
-                        .graphicsLayer {
-                            translationX = gazeTranslateXPx
-                            translationY = gazeTranslateYPx
-                        },
-                    contentAlignment = Alignment.Center
-                ) {
-                    // Left eye node
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.CenterStart)
-                            .size(10.dp)
-                            .graphicsLayer {
-                                scaleY = combinedEyeScaleY
-                            }
-                            .alpha(combinedEyeAlpha)
-                            .background(
-                                brush = Brush.radialGradient(
-                                    colors = listOf(
-                                        palette.eye,
-                                        palette.eye.copy(alpha = 0.3f),
-                                        Color.Transparent
-                                    )
-                                ),
-                                shape = CircleShape
-                            )
-                    )
-                    // Right eye node
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.CenterEnd)
-                            .size(10.dp)
-                            .graphicsLayer {
-                                scaleY = combinedEyeScaleY
-                            }
-                            .alpha(combinedEyeAlpha)
-                            .background(
-                                brush = Brush.radialGradient(
-                                    colors = listOf(
-                                        palette.eye,
-                                        palette.eye.copy(alpha = 0.3f),
-                                        Color.Transparent
-                                    )
-                                ),
-                                shape = CircleShape
-                            )
-                    )
-                }
-            }
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            drawOrb(
+                palette = palette,
+                energy = energy,
+                auraAlpha = auraAlpha,
+                combinedScaleX = combinedScaleX,
+                combinedScaleY = combinedScaleY,
+                eyeAlpha = eyeAlpha,
+                eyeScaleY = eyeScaleY,
+                eyeGazeX = eyeGazeX,
+                eyeGazeY = eyeGazeY,
+                thinkingPhase = thinkingPhase,
+                state = state,
+                errorShake = errorShake,
+                pulseScale = pulseScale
+            )
         }
     }
+}
+
+private fun DrawScope.drawOrb(
+    palette: EmotionPalette,
+    energy: StateEnergy,
+    auraAlpha: Float,
+    combinedScaleX: Float,
+    combinedScaleY: Float,
+    eyeAlpha: Float,
+    eyeScaleY: Float,
+    eyeGazeX: Float,
+    eyeGazeY: Float,
+    thinkingPhase: Float,
+    state: AstraState,
+    errorShake: Float,
+    pulseScale: Float
+) {
+    val center = Offset(size.width / 2f + errorShake, size.height / 2f)
+    val minDim = min(size.width, size.height)
+    val scaleFactor = min(combinedScaleX, combinedScaleY)
+    val coreRadius = minDim * 0.18f * scaleFactor * pulseScale
+    val auraRadius = minDim * 0.32f * scaleFactor * pulseScale
+    val specRadius = coreRadius * 0.65f
+
+    // Aura
+    drawCircle(
+        brush = Brush.radialGradient(
+            colors = listOf(
+                palette.auraInner.copy(alpha = auraAlpha * 0.9f),
+                palette.auraOuter.copy(alpha = auraAlpha * 0.6f),
+                Color.Transparent
+            )
+        ),
+        radius = auraRadius,
+        center = center
+    )
+
+    // Thinking ring
+    if (state is AstraState.Thinking) {
+        rotate(thinkingPhase, center) {
+            drawCircle(
+                brush = Brush.sweepGradient(
+                    listOf(
+                        palette.auraInner.copy(alpha = 0.08f),
+                        palette.auraInner.copy(alpha = 0.45f),
+                        palette.auraInner.copy(alpha = 0.08f)
+                    )
+                ),
+                radius = coreRadius * 1.05f,
+                center = center,
+                style = Stroke(width = coreRadius * 0.06f)
+            )
+        }
+    }
+
+    // Core orb
+    drawCircle(
+        brush = Brush.radialGradient(
+            colors = listOf(
+                palette.core,
+                palette.core.copy(alpha = 0.8f),
+                Color.Black.copy(alpha = 0.2f)
+            )
+        ),
+        radius = coreRadius,
+        center = center
+    )
+
+    // Specular highlight
+    drawCircle(
+        brush = Brush.radialGradient(
+            colors = listOf(
+                Color.White.copy(alpha = 0.24f),
+                Color.Transparent
+            )
+        ),
+        radius = specRadius,
+        center = center + Offset(-coreRadius * 0.4f, -coreRadius * 0.4f)
+    )
+
+    // Error overlay
+    if (state is AstraState.Error) {
+        drawCircle(
+            color = Color(0x66FF7043),
+            radius = coreRadius,
+            center = center
+        )
+    }
+
+    // Eyes
+    val eyeRadius = coreRadius * 0.18f
+    val eyeOffsetX = coreRadius * 0.35f
+    val eyeOffsetY = -coreRadius * 0.2f
+    val pupilOffset = Offset(eyeGazeX * eyeRadius * 0.3f, eyeGazeY * eyeRadius * 0.3f)
+
+    val leftEyeCenter = center + Offset(-eyeOffsetX, eyeOffsetY)
+    val rightEyeCenter = center + Offset(eyeOffsetX, eyeOffsetY)
+
+    drawEye(
+        center = leftEyeCenter,
+        radius = eyeRadius,
+        heightScale = eyeScaleY,
+        alpha = eyeAlpha,
+        palette = palette,
+        pupilOffset = pupilOffset
+    )
+    drawEye(
+        center = rightEyeCenter,
+        radius = eyeRadius,
+        heightScale = eyeScaleY,
+        alpha = eyeAlpha,
+        palette = palette,
+        pupilOffset = pupilOffset
+    )
+}
+
+private fun DrawScope.drawEye(
+    center: Offset,
+    radius: Float,
+    heightScale: Float,
+    alpha: Float,
+    palette: EmotionPalette,
+    pupilOffset: Offset
+) {
+    drawOval(
+        brush = Brush.radialGradient(
+            colors = listOf(
+                palette.eye.copy(alpha = alpha),
+                palette.eye.copy(alpha = alpha * 0.3f),
+                Color.Transparent
+            )
+        ),
+        topLeft = Offset(center.x - radius, center.y - radius * heightScale),
+        size = Size(radius * 2, radius * 2 * heightScale)
+    )
+
+    // Pupil
+    val pupilRadius = radius * 0.35f
+    val pupilCenter = center + pupilOffset
+    drawCircle(
+        brush = Brush.radialGradient(
+            colors = listOf(
+                palette.eye.copy(alpha = alpha),
+                palette.eye.copy(alpha = alpha * 0.4f),
+                Color.Transparent
+            )
+        ),
+        radius = pupilRadius,
+        center = pupilCenter
+    )
 }

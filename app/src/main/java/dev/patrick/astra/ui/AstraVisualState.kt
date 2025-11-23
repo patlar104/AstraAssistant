@@ -1,5 +1,6 @@
 package dev.patrick.astra.ui
 
+import androidx.compose.runtime.Immutable
 import androidx.compose.ui.graphics.Color
 
 enum class Emotion {
@@ -19,6 +20,7 @@ sealed class AstraState {
     data class Error(val reason: String? = null) : AstraState()
 }
 
+@Immutable
 data class EmotionPalette(
     val core: Color,
     val auraInner: Color,
@@ -26,43 +28,59 @@ data class EmotionPalette(
     val eye: Color
 )
 
+@Immutable
+data class StateEnergy(
+    val energy: Float,
+    val pulseSpeedScale: Float,
+    val auraBoost: Float
+)
+
+fun AstraState.toEnergy(): StateEnergy =
+    when (this) {
+        is AstraState.Idle -> StateEnergy(energy = 0.25f, pulseSpeedScale = 1f, auraBoost = 1f)
+        is AstraState.Listening -> StateEnergy(energy = 0.6f, pulseSpeedScale = 1.2f, auraBoost = 1.1f)
+        is AstraState.Thinking -> StateEnergy(energy = 0.5f, pulseSpeedScale = 1.1f, auraBoost = 1.05f)
+        is AstraState.Speaking -> StateEnergy(energy = 0.9f, pulseSpeedScale = 1.35f, auraBoost = 1.15f)
+        is AstraState.Error -> StateEnergy(energy = 0.8f, pulseSpeedScale = 1.5f, auraBoost = 1.2f)
+    }
+
 fun Emotion.toPalette(): EmotionPalette {
     return when (this) {
         Emotion.Happy -> EmotionPalette(
-            core = Color(0xFF4CAF50),
-            auraInner = Color(0x804CAF50),
-            auraOuter = Color(0x204CAF50),
-            eye = Color.White
+            core = Color(0xFF3FD1A0),       // minty teal
+            auraInner = Color(0x663FD1A0),
+            auraOuter = Color(0x1A3FD1A0),
+            eye = Color(0xFFF4FFF9)
         )
         Emotion.Excited -> EmotionPalette(
-            core = Color(0xFF7C4DFF),
-            auraInner = Color(0x807C4DFF),
-            auraOuter = Color(0x207C4DFF),
-            eye = Color(0xFFFFF59D)
+            core = Color(0xFF9C6BFF),       // violet neon
+            auraInner = Color(0x669C6BFF),
+            auraOuter = Color(0x1A9C6BFF),
+            eye = Color(0xFFF7F2FF)
         )
         Emotion.Curious -> EmotionPalette(
-            core = Color(0xFF03A9F4),
-            auraInner = Color(0x8003A9F4),
-            auraOuter = Color(0x2003A9F4),
-            eye = Color.White
+            core = Color(0xFF38D4FF),       // cyan/teal
+            auraInner = Color(0x6638D4FF),
+            auraOuter = Color(0x1A38D4FF),
+            eye = Color(0xFFE7FBFF)
         )
         Emotion.Focused -> EmotionPalette(
-            core = Color(0xFF009688),
-            auraInner = Color(0x80009688),
-            auraOuter = Color(0x20009688),
-            eye = Color(0xFFE0F2F1)
+            core = Color(0xFF1AA0FF),       // deep blue/teal
+            auraInner = Color(0x661AA0FF),
+            auraOuter = Color(0x1A1AA0FF),
+            eye = Color(0xFFE3F2FF)
         )
         Emotion.Concerned -> EmotionPalette(
-            core = Color(0xFFFF7043),
-            auraInner = Color(0x80FF7043),
-            auraOuter = Color(0x20FF7043),
-            eye = Color.White
+            core = Color(0xFFFFA04D),       // warm amber
+            auraInner = Color(0x66FFA04D),
+            auraOuter = Color(0x1AFFA04D),
+            eye = Color(0xFFFFF6E5)
         )
         Emotion.Neutral -> EmotionPalette(
-            core = Color(0xFF9E9E9E),
-            auraInner = Color(0x809E9E9E),
-            auraOuter = Color(0x209E9E9E),
-            eye = Color.White
+            core = Color(0xFF8DA1B3),       // cool gray-blue
+            auraInner = Color(0x668DA1B3),
+            auraOuter = Color(0x1A8DA1B3),
+            eye = Color(0xFFEFF4F7)
         )
     }
 }
