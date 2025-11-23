@@ -14,6 +14,7 @@ import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -33,6 +34,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 import kotlin.math.hypot
@@ -41,6 +43,7 @@ import kotlin.math.hypot
 // These bounds are intentionally generous to ensure edge clamping is safe.
 const val BUBBLE_MAX_VISUAL_SCALE_X: Float = 1.25f
 const val BUBBLE_MAX_VISUAL_SCALE_Y: Float = 1.25f
+private const val ORB_PADDING_DP: Float = 8f
 
 /**
  * Premium draggable Astra orb bubble with:
@@ -122,7 +125,7 @@ fun OverlayBubble(
 
     // Stretchy scale based on drag + state
     val targetStretchScale = when {
-        isDragging -> 1.12f
+        isDragging -> 1.1f
         state is AstraState.Listening -> 1.06f
         state is AstraState.Speaking -> 1.04f
         else -> 1f
@@ -202,6 +205,8 @@ fun OverlayBubble(
 
     Box(
         modifier = modifier
+            // Add invisible padding so animated scale never clips against the view bounds.
+            .padding(ORB_PADDING_DP.dp)
             .onGloballyPositioned { layoutCoordinates ->
                 val size = layoutCoordinates.size
                 onLayoutChanged?.invoke(size.width, size.height)
