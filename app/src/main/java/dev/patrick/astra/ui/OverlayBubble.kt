@@ -89,7 +89,9 @@ fun OverlayBubble(
     onDragEnd: () -> Unit,
     modifier: Modifier = Modifier,
     onPressChange: (Boolean) -> Unit = {},
-    onLayoutChanged: ((widthPx: Int, heightPx: Int) -> Unit)? = null
+    onLayoutChanged: ((widthPx: Int, heightPx: Int) -> Unit)? = null,
+    isInDismissZone: Boolean = false,
+    onDismissTriggered: () -> Unit = {}
 ) {
     val activeEmotion = when (state) {
         is AstraState.Thinking -> state.mood
@@ -277,6 +279,11 @@ fun OverlayBubble(
         animationSpec = tween(200),
         label = "eye_scale_y"
     )
+    val dismissHighlight by animateFloatAsState(
+        targetValue = if (isInDismissZone) 1f else 0f,
+        animationSpec = tween(durationMillis = 160, easing = FastOutSlowInEasing),
+        label = "dismiss_highlight"
+    )
 
     val expressionSquashX = squashXAnim.value
     val expressionSquashY = squashYAnim.value
@@ -416,8 +423,9 @@ fun OverlayBubble(
         animationSpec = tween(durationMillis = 160),
         label = "pressed_scale"
     )
-    val combinedScaleX = pulseScale * stretchScale * pressedScale * (1f + squashFactor)
-    val combinedScaleY = pulseScale * stretchScale * pressedScale * (1f - squashFactor * 0.8f)
+    val dismissScale = 1f - 0.07f * dismissHighlight
+    val combinedScaleX = pulseScale * stretchScale * pressedScale * (1f + squashFactor) * dismissScale
+    val combinedScaleY = pulseScale * stretchScale * pressedScale * (1f - squashFactor * 0.8f) * dismissScale
 
     val breathingScale = if (state is AstraState.Idle || state is AstraState.Listening) {
         1f + sin(breathPhase.toDouble()).toFloat() * 0.015f
@@ -447,8 +455,16 @@ fun OverlayBubble(
         currentPalette
     }
 
-    val auraAlphaScaled = auraAlpha * breathingGlowBoost * speakingGlowBoost
-    val auraScale = breathingScale * speakingAuraScale
+    val dismissColor = Color(0xFFE15B56)
+    val paletteWithDismiss = paletteForState.copy(
+        coreColor = lerp(paletteForState.coreColor, dismissColor.copy(alpha = 0.9f), 0.5f * dismissHighlight),
+        auraColor = lerp(paletteForState.auraColor, dismissColor.copy(alpha = 0.6f), 0.4f * dismissHighlight),
+        glowColor = lerp(paletteForState.glowColor, dismissColor.copy(alpha = 0.35f), 0.35f * dismissHighlight),
+        eyeColor = lerp(paletteForState.eyeColor, Color.White, 0.08f * dismissHighlight)
+    )
+
+    val auraAlphaScaled = auraAlpha * breathingGlowBoost * speakingGlowBoost * (1f - 0.12f * dismissHighlight)
+    val auraScale = breathingScale * speakingAuraScale * (1f - 0.05f * dismissHighlight).coerceAtLeast(0.85f)
 
     val errorShake = if (state is AstraState.Error) {
         (pulsePhase - 0.5f) * 5f
@@ -467,7 +483,7 @@ fun OverlayBubble(
                 .size(containerSize)
         ) {
             drawOrb(
-                palette = paletteForState,
+                palette = paletteWithDismiss,
                 energy = energy,
                 auraAlpha = auraAlphaScaled,
                 combinedScaleX = combinedScaleX,
@@ -487,7 +503,9 @@ fun OverlayBubble(
                 tiltDegrees = finalTilt,
                 eyeSeparationFactor = expressionEyeSeparation,
                 eyeTiltDegrees = expressionEyeTilt,
-                mouthCurve = expressionMouthCurve
+                mouthCurve = expressionMouthCurve,
+                dismissHighlight = dismissHighlight,
+                dismissOverlayColor = dismissColor
             )
         }
 
@@ -522,7 +540,9 @@ private fun DrawScope.drawOrb(
     tiltDegrees: Float,
     eyeSeparationFactor: Float,
     eyeTiltDegrees: Float,
-    mouthCurve: Float
+    mouthCurve: Float,
+    dismissHighlight: Float,
+    dismissOverlayColor: Color
 ) {
     val center = Offset(size.width / 2f + errorShake, size.height / 2f)
     val orbDiameterPx = baseSizePx.coerceAtMost(min(size.width, size.height))
@@ -560,6 +580,10 @@ private fun DrawScope.drawOrb(
     val focusWidth = max(2.dp.toPx(), min(3.dp.toPx(), min(coreRadiusX, coreRadiusY) * 0.06f))
     val arcColor = palette.glowColor.copy(alpha = 0.65f)
     val specOffset = Offset(-coreRadiusX * 0.35f, -coreRadiusY * 0.35f)
+    val dismissCrossAlpha = 0.35f * dismissHighlight
+    val dismissCrossColor = lerp(dismissOverlayColor, Color.White, 0.3f).copy(alpha = dismissCrossAlpha)
+    val dismissCrossSize = min(coreRadiusX, coreRadiusY) * 0.45f
+    val dismissCrossStroke = max(2.dp.toPx(), dismissCrossSize * 0.08f)
 
     withTransform({
         translate(center.x, center.y)
@@ -649,6 +673,22 @@ private fun DrawScope.drawOrb(
             size = Size(mouthArcRadiusX * 2, mouthArcRadiusY * 2),
             style = Stroke(width = mouthThickness)
         )
+
+        if (dismissHighlight > 0.001f) {
+            val crossHalf = dismissCrossSize * 0.5f
+            drawLine(
+                color = dismissCrossColor,
+                start = Offset(-crossHalf, -crossHalf),
+                end = Offset(crossHalf, crossHalf),
+                strokeWidth = dismissCrossStroke
+            )
+            drawLine(
+                color = dismissCrossColor,
+                start = Offset(-crossHalf, crossHalf),
+                end = Offset(crossHalf, -crossHalf),
+                strokeWidth = dismissCrossStroke
+            )
+        }
 
         drawEye(
             center = eyeTiltedLeft,

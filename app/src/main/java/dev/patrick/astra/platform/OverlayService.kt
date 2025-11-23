@@ -5,11 +5,13 @@ import android.content.Intent
 import android.graphics.PixelFormat
 import android.os.Build
 import android.provider.Settings
+import android.util.Log
 import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.ViewCompositionStrategy
 import androidx.core.content.getSystemService
@@ -22,6 +24,7 @@ import androidx.savedstate.SavedStateRegistry
 import androidx.savedstate.SavedStateRegistryController
 import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
+import dev.patrick.astra.BuildConfig
 import dev.patrick.astra.assistant.OverlayUiStateStore
 import dev.patrick.astra.ui.MainActivity
 import dev.patrick.astra.ui.OverlayBubble
@@ -55,6 +58,7 @@ class OverlayService :
     // Real measured size of the Compose bubble in px
     private var bubbleWidthPx: Int = 0
     private var bubbleHeightPx: Int = 0
+    private val inDismissZoneState = mutableStateOf(false)
 
     // ViewModelStoreOwner implementation
     override val viewModelStore: ViewModelStore = ViewModelStore()
@@ -113,6 +117,10 @@ class OverlayService :
         // Keep fallback size aligned with the Compose container to avoid bounds mismatch.
         val bubbleMarginPx = (12f * density).roundToInt()
         val fallbackBubbleSizePx = (ORB_BASE_DP * ORB_VISUAL_CONTAINER_SCALE * density).roundToInt()
+        val dismissTop = (screenHeight * 0.75f).roundToInt()
+        val dismissBottom = screenHeight - bubbleMarginPx
+        val dismissCenterX = screenWidth / 2
+        val dismissHalfWidth = (screenWidth * 0.35f).roundToInt()
 
         // Final safety clamp before first show
         params.x = params.x.coerceIn(
@@ -179,6 +187,21 @@ class OverlayService :
                             lastWindowX = layoutParams.x
                             lastWindowY = layoutParams.y
 
+                            val centerX = layoutParams.x + effectiveW / 2
+                            val centerY = layoutParams.y + effectiveH / 2
+                            val inHorizontalBand = kotlin.math.abs(centerX - dismissCenterX) <= dismissHalfWidth
+                            val inVerticalBand = centerY in dismissTop..dismissBottom
+                            val inDismissZone = inHorizontalBand && inVerticalBand
+                            if (inDismissZoneState.value != inDismissZone) {
+                                if (BuildConfig.DEBUG) {
+                                    Log.d(
+                                        DISMISS_TAG,
+                                        if (inDismissZone) "Entered dismiss zone" else "Exited dismiss zone"
+                                    )
+                                }
+                                inDismissZoneState.value = inDismissZone
+                            }
+
                             wm?.updateViewLayout(this@apply, layoutParams)
                         },
                         onDragEnd = {
@@ -186,6 +209,12 @@ class OverlayService :
 
                             val effectiveW = if (bubbleWidthPx > 0) bubbleWidthPx else fallbackBubbleSizePx
                             val effectiveH = if (bubbleHeightPx > 0) bubbleHeightPx else fallbackBubbleSizePx
+                            val shouldDismiss = inDismissZoneState.value
+                            inDismissZoneState.value = false
+                            if (shouldDismiss) {
+                                dismissOverlay()
+                                return@OverlayBubble
+                            }
 
                             // Decide which edge to snap to based on current x
                             val midX = screenWidth / 2
@@ -213,7 +242,9 @@ class OverlayService :
                         onLayoutChanged = { widthPx, heightPx ->
                             bubbleWidthPx = widthPx
                             bubbleHeightPx = heightPx
-                        }
+                        },
+                        isInDismissZone = inDismissZoneState.value,
+                        onDismissTriggered = { dismissOverlay() }
                     )
                 }
             }
@@ -240,8 +271,16 @@ class OverlayService :
         startActivity(intent)
     }
 
+    private fun dismissOverlay() {
+        if (BuildConfig.DEBUG) {
+            Log.d(DISMISS_TAG, "Dismissing overlay from dismiss zone")
+        }
+        stopSelf()
+    }
+
 
     companion object {
+        private const val DISMISS_TAG = "OverlayServiceDismiss"
         fun canDrawOverlays(context: Context): Boolean {
             return Settings.canDrawOverlays(context)
         }
