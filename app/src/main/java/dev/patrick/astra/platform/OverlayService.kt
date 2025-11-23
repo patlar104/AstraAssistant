@@ -23,17 +23,23 @@ import androidx.savedstate.SavedStateRegistryController
 import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import dev.patrick.astra.assistant.OverlayUiStateStore
-import dev.patrick.astra.ui.BUBBLE_MAX_VISUAL_SCALE_X
-import dev.patrick.astra.ui.BUBBLE_MAX_VISUAL_SCALE_Y
 import dev.patrick.astra.ui.MainActivity
 import dev.patrick.astra.ui.OverlayBubble
+import dev.patrick.astra.ui.ORB_BASE_DP
+import dev.patrick.astra.ui.ORB_VISUAL_CONTAINER_SCALE
 import dev.patrick.astra.ui.theme.AstraAssistantTheme
+import kotlin.math.roundToInt
 
 /**
  * Foreground-like overlay service that shows a draggable Astra bubble on top
  * of other apps. Tapping the bubble brings MainActivity to the foreground.
  *
  * This uses a ComposeView attached to a TYPE_APPLICATION_OVERLAY window.
+ *
+ * Summary:
+ * - Bounds use actual measured bubble size (fallback = 96dp * 1.1) with 12dp margins.
+ * - Drag clamps use coerceAtLeast to avoid empty ranges; snap uses same dimensions.
+ * - OverlayBubble delivers onTap/onDragDelta/onPressChange without extra hitbox padding.
  */
 class OverlayService :
     LifecycleService(),
@@ -77,6 +83,7 @@ class OverlayService :
         val displayMetrics = resources.displayMetrics
         val screenWidth = displayMetrics.widthPixels
         val screenHeight = displayMetrics.heightPixels
+        val density = displayMetrics.density
 
         windowManager = getSystemService()
 
@@ -91,31 +98,30 @@ class OverlayService :
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
             type,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
-            PixelFormat.TRANSLUCENT
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+                PixelFormat.TRANSLUCENT
         ).apply {
             // Use a simple top-start anchor; x/y are offsets from top-left
             gravity = Gravity.TOP or Gravity.START
-            val fallbackW = (96 * displayMetrics.density).toInt()
-            val fallbackH = (96 * displayMetrics.density).toInt()
-            val marginPx = (12 * displayMetrics.density).toInt()
-            x = screenWidth - fallbackW - marginPx
-            y = screenHeight / 2 - fallbackH / 2
+            val fallbackSizePx = (ORB_BASE_DP * ORB_VISUAL_CONTAINER_SCALE * density).roundToInt()
+            val marginPx = (12f * density).roundToInt()
+            x = screenWidth - fallbackSizePx - marginPx
+            y = screenHeight / 2 - fallbackSizePx / 2
         }
 
-        val bubbleMarginPx = (12 * displayMetrics.density).toInt()
+        // Keep fallback size aligned with the Compose container to avoid bounds mismatch.
+        val bubbleMarginPx = (12f * density).roundToInt()
+        val fallbackBubbleSizePx = (ORB_BASE_DP * ORB_VISUAL_CONTAINER_SCALE * density).roundToInt()
 
         // Final safety clamp before first show
-        val baseClampW = (96 * displayMetrics.density).toInt()
-        val baseClampH = (96 * displayMetrics.density).toInt()
         params.x = params.x.coerceIn(
             bubbleMarginPx,
-            screenWidth - baseClampW - bubbleMarginPx
+            (screenWidth - fallbackBubbleSizePx - bubbleMarginPx).coerceAtLeast(bubbleMarginPx)
         )
         params.y = params.y.coerceIn(
             bubbleMarginPx,
-            screenHeight - baseClampH - bubbleMarginPx
+            (screenHeight - fallbackBubbleSizePx - bubbleMarginPx).coerceAtLeast(bubbleMarginPx)
         )
 
         lastWindowX = params.x
@@ -143,33 +149,29 @@ class OverlayService :
                     OverlayBubble(
                         state = uiState.state,
                         emotion = uiState.emotion,
-                        onClick = {
+                        onTap = {
                             bringMainActivityToFront()
                         },
-                        onDrag = { dx, dy ->
+                        onDragDelta = { dx, dy ->
                             val layoutParams = params
 
-                            val fallback = (96 * displayMetrics.density).toInt()
-                            val w = if (bubbleWidthPx > 0) bubbleWidthPx else fallback
-                            val h = if (bubbleHeightPx > 0) bubbleHeightPx else fallback
-                            val effectiveW = w
-                            val effectiveH = h
+                            val effectiveW = if (bubbleWidthPx > 0) bubbleWidthPx else fallbackBubbleSizePx
+                            val effectiveH = if (bubbleHeightPx > 0) bubbleHeightPx else fallbackBubbleSizePx
 
                             // Update raw position
                             layoutParams.x += dx.toInt()
                             layoutParams.y += dy.toInt()
 
-                            // Clamp the bubble so it can't fully leave the screen
+                            // Clamp the bubble so it can't fully leave the screen; coerceAtLeast prevents empty ranges.
                             val minX = bubbleMarginPxInner
-                            val rawMaxX = screenWidth - effectiveW - bubbleMarginPxInner
+                            val maxX = (screenWidth - effectiveW - bubbleMarginPxInner)
+                                .coerceAtLeast(minX)
                             val minY = bubbleMarginPxInner
-                            val rawMaxY = screenHeight - effectiveH - bubbleMarginPxInner
+                            val maxY = (screenHeight - effectiveH - bubbleMarginPxInner)
+                                .coerceAtLeast(minY)
 
-                            val safeMaxX = maxOf(rawMaxX, minX)
-                            val safeMaxY = maxOf(rawMaxY, minY)
-
-                            layoutParams.x = layoutParams.x.coerceIn(minX, safeMaxX)
-                            layoutParams.y = layoutParams.y.coerceIn(minY, safeMaxY)
+                            layoutParams.x = layoutParams.x.coerceIn(minX, maxX)
+                            layoutParams.y = layoutParams.y.coerceIn(minY, maxY)
 
                             lastWindowX = layoutParams.x
                             lastWindowY = layoutParams.y
@@ -179,11 +181,8 @@ class OverlayService :
                         onDragEnd = {
                             val layoutParams = params
 
-                            val fallback = (96 * displayMetrics.density).toInt()
-                            val w = if (bubbleWidthPx > 0) bubbleWidthPx else fallback
-                            val h = if (bubbleHeightPx > 0) bubbleHeightPx else fallback
-                            val effectiveW = w
-                            val effectiveH = h
+                            val effectiveW = if (bubbleWidthPx > 0) bubbleWidthPx else fallbackBubbleSizePx
+                            val effectiveH = if (bubbleHeightPx > 0) bubbleHeightPx else fallbackBubbleSizePx
 
                             // Decide which edge to snap to based on current x
                             val midX = screenWidth / 2
@@ -194,13 +193,13 @@ class OverlayService :
                             }
 
                             val minY = bubbleMarginPxInner
-                            val rawMaxY = screenHeight - effectiveH - bubbleMarginPxInner
-                            val safeMaxY = maxOf(rawMaxY, minY)
+                            val maxY = (screenHeight - effectiveH - bubbleMarginPxInner)
+                                .coerceAtLeast(minY)
 
                             layoutParams.x = snappedX
                             layoutParams.y = layoutParams.y.coerceIn(
                                 minY,
-                                safeMaxY
+                                maxY
                             )
 
                             lastWindowX = layoutParams.x

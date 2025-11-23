@@ -8,11 +8,15 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -36,11 +40,19 @@ import kotlin.math.hypot
 import kotlin.math.min
 import kotlin.math.roundToInt
 
-// Worst-case visual scale of the orb considering pulse + stretch animations.
-// These bounds are intentionally generous to ensure edge clamping is safe.
-const val BUBBLE_MAX_VISUAL_SCALE_X: Float = 1.25f
-const val BUBBLE_MAX_VISUAL_SCALE_Y: Float = 1.25f
-private const val ORB_SIZE_DP: Float = 96f
+// NOTE: Old container scale (1.4x) made the window ~134dp while the orb visuals stay near 96dp,
+// which inflated the touch window and mismatched OverlayService bounds. Keep only a small pad.
+const val ORB_BASE_DP: Float = 96f
+const val ORB_VISUAL_CONTAINER_SCALE: Float = 1.1f // tiny canvas pad to avoid aura/glow clipping at edges
+
+// Summary:
+// - Hitbox == 96dp core (Box.size(baseSize)); canvas has only 10% padding for glow.
+// - Drag uses detectDragGestures; clicks go through combinedClickable gated by isDragging.
+// - Long press toggles didLongPress so taps never fire afterwards.
+
+private const val CORE_RADIUS_RATIO = 0.38f // core spans ~76% of the 96dp diameter (meets 30-40% radius spec)
+private const val AURA_RADIUS_RATIO = 0.52f // aura expands slightly beyond the hitbox but stays inside the 1.1x canvas
+private const val OUTER_GLOW_MULTIPLIER = 1.18f // keeps glow visible without clipping
 
 /**
  * Optimized Canvas-driven overlay orb:
@@ -50,6 +62,7 @@ private const val ORB_SIZE_DP: Float = 96f
  *
  * OverlayService remains responsible for translating dx/dy into WindowManager.LayoutParams updates.
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun OverlayBubble(
     modifier: Modifier = Modifier,
@@ -57,9 +70,10 @@ fun OverlayBubble(
     emotion: Emotion = Emotion.Neutral,
     gazeHintX: Float? = null,
     gazeHintY: Float? = null,
-    onClick: () -> Unit,
-    onDrag: (dx: Float, dy: Float) -> Unit,
+    onTap: () -> Unit,
+    onDragDelta: (dx: Float, dy: Float) -> Unit,
     onDragEnd: () -> Unit,
+    onPressChange: (Boolean) -> Unit = {},
     onLongPress: (() -> Unit)? = null,
     onLayoutChanged: ((widthPx: Int, heightPx: Int) -> Unit)? = null
 ) {
@@ -71,12 +85,15 @@ fun OverlayBubble(
     var totalDrag by remember { mutableStateOf(Offset.Zero) }
     var eyeOffsetX by remember { mutableStateOf(0f) }
     var eyeOffsetY by remember { mutableStateOf(0f) }
-    var isPressed by remember { mutableStateOf(false) }
+    var didLongPress by remember { mutableStateOf(false) }
 
-    val clickCb by rememberUpdatedState(onClick)
-    val dragCb by rememberUpdatedState(onDrag)
+    val tapCb by rememberUpdatedState(onTap)
+    val dragCb by rememberUpdatedState(onDragDelta)
     val dragEndCb by rememberUpdatedState(onDragEnd)
+    val pressChangeCb by rememberUpdatedState(onPressChange)
     val longPressCb by rememberUpdatedState(onLongPress)
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressedByClick by interactionSource.collectIsPressedAsState()
 
     val infinite = rememberInfiniteTransition(label = "orb_global")
 
@@ -141,7 +158,9 @@ fun OverlayBubble(
         label = "blink_scale"
     )
 
-    val auraAlphaTarget = if (isDragging || isPressed) {
+    val isPressing = isDragging || isPressedByClick
+
+    val auraAlphaTarget = if (isPressing) {
         0.38f + energy.energy * 0.32f
     } else {
         0.18f + energy.energy * 0.35f
@@ -179,13 +198,17 @@ fun OverlayBubble(
         label = "eye_scale_y"
     )
 
-    val dragThresholdPx = with(LocalDensity.current) { 10.dp.toPx() }
+    // NOTE: Prior hitbox equaled the 96dp core while glow extended past it, so edges could clip and
+    // the invisible window size differed from what OverlayService assumed. Use a larger visual
+    // container but keep the pointer hitbox tight to the 96dp core.
+    val baseSize = ORB_BASE_DP.dp
+    val containerSize = baseSize * ORB_VISUAL_CONTAINER_SCALE
 
-    val gestureModifier = Modifier.pointerInput(Unit) {
+    val dragModifier = Modifier.pointerInput(Unit) {
         detectDragGestures(
             onDragStart = {
-                isDragging = false
-                isPressed = true
+                isDragging = true
+                didLongPress = false
                 dragMagnitude = 0f
                 totalDrag = Offset.Zero
                 eyeOffsetX = 0f
@@ -194,37 +217,27 @@ fun OverlayBubble(
             onDrag = { change, dragAmount ->
                 totalDrag += dragAmount
                 val (dx, dy) = dragAmount
-                dragMagnitude = totalDrag.getDistance()
+                dragMagnitude = hypot(totalDrag.x, totalDrag.y)
                 val normX = (dx / 40f).coerceIn(-1f, 1f)
                 val normY = (dy / 40f).coerceIn(-1f, 1f)
                 eyeOffsetX = normX
                 eyeOffsetY = normY
 
-                if (!isDragging && dragMagnitude > dragThresholdPx) {
-                    isDragging = true
-                }
-
-                if (isDragging) {
-                    change.consume()
-                    dragCb(dx, dy)
-                }
+                change.consume()
+                dragCb(dx, dy)
             },
             onDragEnd = {
-                if (isDragging) {
-                    dragEndCb()
-                } else {
-                    clickCb()
-                }
                 isDragging = false
-                isPressed = false
+                didLongPress = false
                 dragMagnitude = 0f
                 totalDrag = Offset.Zero
                 eyeOffsetX = 0f
                 eyeOffsetY = 0f
+                dragEndCb()
             },
             onDragCancel = {
                 isDragging = false
-                isPressed = false
+                didLongPress = false
                 dragMagnitude = 0f
                 totalDrag = Offset.Zero
                 eyeOffsetX = 0f
@@ -234,14 +247,27 @@ fun OverlayBubble(
         )
     }
 
-    val longPressModifier = if (longPressCb != null) {
-        Modifier.pointerInput(longPressCb) {
-            detectTapGestures(
-                onLongPress = { longPressCb?.invoke() }
-            )
+    val clickModifier = Modifier.combinedClickable(
+        interactionSource = interactionSource,
+        indication = null,
+        enabled = !isDragging,
+        onClick = {
+            if (didLongPress) {
+                didLongPress = false
+                return@combinedClickable
+            }
+            tapCb()
+        },
+        onLongClick = {
+            if (!isDragging) {
+                didLongPress = true
+                longPressCb?.invoke()
+            }
         }
-    } else {
-        Modifier
+    )
+
+    LaunchedEffect(isPressing) {
+        pressChangeCb(isPressing)
     }
 
     val maxEyeOffset = 0.12f
@@ -260,7 +286,7 @@ fun OverlayBubble(
     }
 
     val squashFactor = if (isDragging) (dragMagnitude / 70f).coerceIn(0f, 0.12f) else 0f
-    val pressedScaleTarget = if (isDragging || isPressed) 1.08f else 1f
+    val pressedScaleTarget = if (isPressing) 1.08f else 1f
     val pressedScale by animateFloatAsState(
         targetValue = pressedScaleTarget,
         animationSpec = tween(durationMillis = 160),
@@ -273,22 +299,19 @@ fun OverlayBubble(
         (pulsePhase - 0.5f) * 5f
     } else 0f
 
-    val orbSizeDp = ORB_SIZE_DP.dp
-    val orbSizePx = with(LocalDensity.current) { orbSizeDp.toPx() }
+    val baseSizePx = with(LocalDensity.current) { baseSize.toPx() }
 
     Box(
         modifier = modifier
-            .size(orbSizeDp)
+            .size(containerSize)
             .onGloballyPositioned {
-                onLayoutChanged?.invoke(orbSizePx.toInt(), orbSizePx.toInt())
+                onLayoutChanged?.invoke(it.size.width, it.size.height)
             },
         contentAlignment = Alignment.Center
     ) {
         Canvas(
             modifier = Modifier
-                .size(orbSizeDp)
-                .then(gestureModifier)
-                .then(longPressModifier)
+                .size(containerSize)
         ) {
             drawOrb(
                 palette = palette,
@@ -303,10 +326,16 @@ fun OverlayBubble(
                 thinkingPhase = thinkingPhase,
                 state = state,
                 errorShake = errorShake,
-                pulseScale = pulseScale,
-                baseSizePx = orbSizePx
+                baseSizePx = baseSizePx
             )
         }
+
+        Box(
+            modifier = Modifier
+                .size(baseSize) // hitbox matches the ~96dp orb instead of the larger glow container
+                .then(dragModifier)
+                .then(clickModifier)
+        )
     }
 }
 
@@ -323,16 +352,15 @@ private fun DrawScope.drawOrb(
     thinkingPhase: Float,
     state: AstraState,
     errorShake: Float,
-    pulseScale: Float,
     baseSizePx: Float
 ) {
     val center = Offset(size.width / 2f + errorShake, size.height / 2f)
-    val minDim = min(baseSizePx, baseSizePx)
-    val scaleFactor = min(combinedScaleX, combinedScaleY)
-    val coreRadius = minDim * 0.28f * scaleFactor * pulseScale
-    val auraRadius = minDim * 0.46f * scaleFactor * pulseScale
-    val outerGlowRadius = auraRadius * 1.2f
-    val specRadius = coreRadius * 0.65f
+    val orbDiameterPx = baseSizePx.coerceAtMost(min(size.width, size.height))
+    val orbScale = min(combinedScaleX, combinedScaleY)
+    val coreRadius = orbDiameterPx * CORE_RADIUS_RATIO * orbScale
+    val auraRadius = orbDiameterPx * AURA_RADIUS_RATIO * orbScale
+    val outerGlowRadius = auraRadius * OUTER_GLOW_MULTIPLIER
+    val specRadius = coreRadius * 0.55f
 
     // Aura
     drawCircle(
