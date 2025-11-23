@@ -70,6 +70,7 @@ fun OverlayBubble(
     var dragMagnitude by remember { mutableStateOf(0f) }
     var eyeOffsetX by remember { mutableStateOf(0f) }
     var eyeOffsetY by remember { mutableStateOf(0f) }
+    var isPressed by remember { mutableStateOf(false) }
 
     val clickCb by rememberUpdatedState(onClick)
     val dragCb by rememberUpdatedState(onDrag)
@@ -139,10 +140,10 @@ fun OverlayBubble(
         label = "blink_scale"
     )
 
-    val auraAlphaTarget = if (isDragging) {
-        0.55f + energy.energy * 0.3f
+    val auraAlphaTarget = if (isDragging || isPressed) {
+        0.38f + energy.energy * 0.32f
     } else {
-        0.22f + energy.energy * 0.4f
+        0.18f + energy.energy * 0.35f
     }
 
     val auraAlpha by animateFloatAsState(
@@ -182,9 +183,11 @@ fun OverlayBubble(
             detectDragGestures(
                 onDragStart = {
                     isDragging = true
+                    isPressed = true
                 },
                 onDragEnd = {
                     isDragging = false
+                    isPressed = false
                     dragMagnitude = 0f
                     eyeOffsetX = 0f
                     eyeOffsetY = 0f
@@ -192,6 +195,7 @@ fun OverlayBubble(
                 },
                 onDragCancel = {
                     isDragging = false
+                    isPressed = false
                     dragMagnitude = 0f
                     eyeOffsetX = 0f
                     eyeOffsetY = 0f
@@ -211,12 +215,20 @@ fun OverlayBubble(
         }
         .pointerInput(Unit) {
             detectTapGestures(
-                onTap = { clickCb() },
+                onPress = {
+                    isPressed = true
+                    try {
+                        tryAwaitRelease()
+                        clickCb()
+                    } finally {
+                        isPressed = false
+                    }
+                },
                 onLongPress = { longPressCb?.invoke() }
             )
         }
 
-    val maxEyeOffset = 0.14f
+    val maxEyeOffset = 0.12f
     val externalGazeX = gazeHintX ?: 0f
     val externalGazeY = gazeHintY ?: 0f
     val blendedGazeX = (eyeOffsetX * 0.7f) + (externalGazeX * 0.3f)
@@ -232,8 +244,14 @@ fun OverlayBubble(
     }
 
     val squashFactor = if (isDragging) (dragMagnitude / 70f).coerceIn(0f, 0.12f) else 0f
-    val combinedScaleX = pulseScale * stretchScale * (1f + squashFactor)
-    val combinedScaleY = pulseScale * stretchScale * (1f - squashFactor * 0.8f)
+    val pressedScaleTarget = if (isDragging || isPressed) 1.08f else 1f
+    val pressedScale by animateFloatAsState(
+        targetValue = pressedScaleTarget,
+        animationSpec = tween(durationMillis = 160),
+        label = "pressed_scale"
+    )
+    val combinedScaleX = pulseScale * stretchScale * pressedScale * (1f + squashFactor)
+    val combinedScaleY = pulseScale * stretchScale * pressedScale * (1f - squashFactor * 0.8f)
 
     val errorShake = if (state is AstraState.Error) {
         (pulsePhase - 0.5f) * 5f
@@ -296,18 +314,30 @@ private fun DrawScope.drawOrb(
     val scaleFactor = min(combinedScaleX, combinedScaleY)
     val coreRadius = minDim * 0.28f * scaleFactor * pulseScale
     val auraRadius = minDim * 0.46f * scaleFactor * pulseScale
+    val outerGlowRadius = auraRadius * 1.2f
     val specRadius = coreRadius * 0.65f
 
     // Aura
     drawCircle(
         brush = Brush.radialGradient(
             colors = listOf(
-                palette.auraInner.copy(alpha = auraAlpha * 0.9f),
-                palette.auraOuter.copy(alpha = auraAlpha * 0.6f),
+                palette.auraInner.copy(alpha = auraAlpha * 0.75f),
+                palette.auraOuter.copy(alpha = auraAlpha * 0.45f),
                 Color.Transparent
             )
         ),
         radius = auraRadius,
+        center = center
+    )
+    // Soft outer glow
+    drawCircle(
+        brush = Brush.radialGradient(
+            colors = listOf(
+                palette.auraOuter.copy(alpha = auraAlpha * 0.2f),
+                Color.Transparent
+            )
+        ),
+        radius = outerGlowRadius,
         center = center
     )
 
@@ -364,7 +394,7 @@ private fun DrawScope.drawOrb(
     }
 
     // Eyes
-    val eyeRadius = coreRadius * 0.18f
+    val eyeRadius = coreRadius * 0.22f
     val eyeOffsetX = coreRadius * 0.35f
     val eyeOffsetY = -coreRadius * 0.2f
     val pupilOffset = Offset(eyeGazeX * eyeRadius * 0.3f, eyeGazeY * eyeRadius * 0.3f)
