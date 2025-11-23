@@ -26,6 +26,8 @@ import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import dev.patrick.astra.BuildConfig
 import dev.patrick.astra.assistant.OverlayUiStateStore
+import dev.patrick.astra.ui.AstraState
+import dev.patrick.astra.ui.Emotion
 import dev.patrick.astra.ui.MainActivity
 import dev.patrick.astra.ui.OverlayBubble
 import dev.patrick.astra.ui.ORB_BASE_DP
@@ -244,7 +246,11 @@ class OverlayService :
                             bubbleHeightPx = heightPx
                         },
                         isInDismissZone = inDismissZoneState.value,
-                        onDismissTriggered = { dismissOverlay() }
+                        onDismissTriggered = { dismissOverlay() },
+                        onRequestVoice = { requestVoice() },
+                        onRequestTranslate = { requestTranslate() },
+                        onRequestSettings = { requestSettings() },
+                        onRequestHide = { requestHide() }
                     )
                 }
             }
@@ -269,6 +275,29 @@ class OverlayService :
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
         }
         startActivity(intent)
+    }
+
+    private fun requestVoice() {
+        OverlayUiStateStore.set(
+            state = AstraState.Listening(intensity = 1f),
+            emotion = Emotion.Focused
+        )
+        bringMainActivityToFront()
+    }
+
+    private fun requestTranslate() {
+        OverlayUiStateStore.update(
+            state = AstraState.Thinking(mood = Emotion.Curious),
+            emotion = Emotion.Curious
+        )
+    }
+
+    private fun requestSettings() {
+        bringMainActivityToFront()
+    }
+
+    private fun requestHide() {
+        dismissOverlay()
     }
 
     private fun dismissOverlay() {

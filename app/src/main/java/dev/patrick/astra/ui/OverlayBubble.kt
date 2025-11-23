@@ -10,6 +10,7 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
@@ -19,7 +20,16 @@ import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -37,12 +47,15 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.drawscope.withTransform
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.changedToDownIgnoreConsumed
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.cos
@@ -52,6 +65,7 @@ import kotlin.math.min
 import kotlin.math.roundToInt
 import kotlin.math.sin
 import kotlin.random.Random
+import kotlin.collections.buildList
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -91,7 +105,11 @@ fun OverlayBubble(
     onPressChange: (Boolean) -> Unit = {},
     onLayoutChanged: ((widthPx: Int, heightPx: Int) -> Unit)? = null,
     isInDismissZone: Boolean = false,
-    onDismissTriggered: () -> Unit = {}
+    onDismissTriggered: () -> Unit = {},
+    onRequestVoice: () -> Unit,
+    onRequestTranslate: () -> Unit,
+    onRequestSettings: () -> Unit,
+    onRequestHide: (() -> Unit)? = null
 ) {
     val activeEmotion = when (state) {
         is AstraState.Thinking -> state.mood
@@ -108,12 +126,17 @@ fun OverlayBubble(
     var didLongPress by remember { mutableStateOf(false) }
     var lastTapPosition by remember { mutableStateOf<Offset?>(null) }
     var gazeTarget by remember { mutableStateOf(Offset.Zero) }
+    var hudVisible by remember { mutableStateOf(false) }
 
     val tapCb by rememberUpdatedState(onTap)
     val dragCb by rememberUpdatedState(onDrag)
     val dragEndCb by rememberUpdatedState(onDragEnd)
     val pressChangeCb by rememberUpdatedState(onPressChange)
     val longPressCb by rememberUpdatedState(onLongPress)
+    val requestVoiceCb by rememberUpdatedState(onRequestVoice)
+    val requestTranslateCb by rememberUpdatedState(onRequestTranslate)
+    val requestSettingsCb by rememberUpdatedState(onRequestSettings)
+    val requestHideCb by rememberUpdatedState(onRequestHide)
     val interactionSource = remember { MutableInteractionSource() }
     val isPressedByClick by interactionSource.collectIsPressedAsState()
 
@@ -308,80 +331,96 @@ fun OverlayBubble(
     val baseSize = ORB_BASE_DP.dp
     val containerSize = baseSize * ORB_VISUAL_CONTAINER_SCALE
     val baseSizePx = with(LocalDensity.current) { baseSize.toPx() }
-    val dragModifier = Modifier.pointerInput(Unit) {
-        detectDragGestures(
-            onDragStart = {
-                isDragging = true
-                didLongPress = false
-                dragMagnitude = 0f
-                totalDrag = Offset.Zero
-                gazeTarget = Offset.Zero
-            },
-            onDrag = { change, dragAmount ->
-                totalDrag += dragAmount
-                val (dx, dy) = dragAmount
-                dragMagnitude = hypot(totalDrag.x, totalDrag.y)
-                val magnitude = hypot(dx, dy)
-                if (magnitude > 0f) {
-                    val normalized = Offset(dx / magnitude, dy / magnitude)
-                    gazeTarget = normalized * 0.12f
-                }
+    val dragModifier = if (hudVisible) {
+        Modifier
+    } else {
+        Modifier.pointerInput(Unit) {
+            detectDragGestures(
+                onDragStart = {
+                    isDragging = true
+                    hudVisible = false
+                    didLongPress = false
+                    dragMagnitude = 0f
+                    totalDrag = Offset.Zero
+                    gazeTarget = Offset.Zero
+                },
+                onDrag = { change, dragAmount ->
+                    totalDrag += dragAmount
+                    val (dx, dy) = dragAmount
+                    dragMagnitude = hypot(totalDrag.x, totalDrag.y)
+                    val magnitude = hypot(dx, dy)
+                    if (magnitude > 0f) {
+                        val normalized = Offset(dx / magnitude, dy / magnitude)
+                        gazeTarget = normalized * 0.12f
+                    }
 
-                change.consume()
-                dragCb(dx, dy)
+                    change.consume()
+                    dragCb(dx, dy)
+                },
+                onDragEnd = {
+                    isDragging = false
+                    hudVisible = false
+                    didLongPress = false
+                    dragMagnitude = 0f
+                    totalDrag = Offset.Zero
+                    gazeTarget = Offset.Zero
+                    dragEndCb()
+                },
+                onDragCancel = {
+                    isDragging = false
+                    hudVisible = false
+                    didLongPress = false
+                    dragMagnitude = 0f
+                    totalDrag = Offset.Zero
+                    gazeTarget = Offset.Zero
+                    dragEndCb()
+                }
+            )
+        }
+    }
+
+    val gazePointerModifier = if (hudVisible) {
+        Modifier
+    } else {
+        Modifier.pointerInput(baseSizePx) {
+            awaitEachGesture {
+                val down = awaitFirstDown()
+                lastTapPosition = down.position
+                val center = Offset(baseSizePx / 2f, baseSizePx / 2f)
+                val delta = down.position - center
+                val distance = delta.getDistance()
+                gazeTarget = if (distance > 0f) {
+                    Offset(delta.x / distance, delta.y / distance) * 0.12f
+                } else {
+                    Offset.Zero
+                }
+            }
+        }
+    }
+
+    val clickModifier = if (hudVisible) {
+        Modifier
+    } else {
+        Modifier.combinedClickable(
+            interactionSource = interactionSource,
+            indication = null,
+            enabled = !isDragging,
+            onClick = {
+                if (didLongPress) {
+                    didLongPress = false
+                    return@combinedClickable
+                }
+                tapCb()
             },
-            onDragEnd = {
-                isDragging = false
-                didLongPress = false
-                dragMagnitude = 0f
-                totalDrag = Offset.Zero
-                gazeTarget = Offset.Zero
-                dragEndCb()
-            },
-            onDragCancel = {
-                isDragging = false
-                didLongPress = false
-                dragMagnitude = 0f
-                totalDrag = Offset.Zero
-                gazeTarget = Offset.Zero
-                dragEndCb()
+            onLongClick = {
+                if (!isDragging) {
+                    didLongPress = true
+                    hudVisible = true
+                    longPressCb()
+                }
             }
         )
     }
-
-    val gazePointerModifier = Modifier.pointerInput(baseSizePx) {
-        awaitEachGesture {
-            val down = awaitFirstDown()
-            lastTapPosition = down.position
-            val center = Offset(baseSizePx / 2f, baseSizePx / 2f)
-            val delta = down.position - center
-            val distance = delta.getDistance()
-            gazeTarget = if (distance > 0f) {
-                Offset(delta.x / distance, delta.y / distance) * 0.12f
-            } else {
-                Offset.Zero
-            }
-        }
-    }
-
-    val clickModifier = Modifier.combinedClickable(
-        interactionSource = interactionSource,
-        indication = null,
-        enabled = !isDragging,
-        onClick = {
-            if (didLongPress) {
-                didLongPress = false
-                return@combinedClickable
-            }
-            tapCb()
-        },
-        onLongClick = {
-            if (!isDragging) {
-                didLongPress = true
-                longPressCb()
-            }
-        }
-    )
 
     val smoothedGaze by animateOffsetAsState(
         targetValue = gazeTarget,
@@ -403,6 +442,12 @@ fun OverlayBubble(
 
     LaunchedEffect(isPressing) {
         pressChangeCb(isPressing)
+    }
+
+    LaunchedEffect(isInDismissZone) {
+        if (isInDismissZone) {
+            hudVisible = false
+        }
     }
 
     val maxEyeOffset = 0.12f
@@ -508,6 +553,50 @@ fun OverlayBubble(
                 dismissOverlayColor = dismissColor
             )
         }
+
+        val quickActions = remember(onRequestVoice, onRequestTranslate, onRequestSettings, onRequestHide) {
+            buildList {
+                add(
+                    OrbHudAction(
+                        label = "Ask",
+                        icon = "A",
+                        onClick = { requestVoiceCb() }
+                    )
+                )
+                add(
+                    OrbHudAction(
+                        label = "Translate",
+                        icon = "T",
+                        onClick = { requestTranslateCb() }
+                    )
+                )
+                add(
+                    OrbHudAction(
+                        label = "Settings",
+                        icon = "S",
+                        onClick = { requestSettingsCb() }
+                    )
+                )
+                requestHideCb?.let {
+                    add(
+                        OrbHudAction(
+                            label = "Hide",
+                            icon = "X",
+                            onClick = it
+                        )
+                    )
+                }
+            }
+        }
+
+        OrbQuickActionsHud(
+            visible = hudVisible,
+            actions = quickActions,
+            onDismiss = {
+                hudVisible = false
+                didLongPress = false
+            }
+        )
 
         Box(
             modifier = Modifier
@@ -761,4 +850,126 @@ private fun rotateOffset(offset: Offset, degrees: Float): Offset {
 
 private fun lerpFloat(start: Float, end: Float, t: Float): Float {
     return start + (end - start) * t
+}
+
+private data class OrbHudAction(
+    val label: String,
+    val icon: String,
+    val onClick: () -> Unit
+)
+
+@Composable
+private fun OrbQuickActionsHud(
+    visible: Boolean,
+    actions: List<OrbHudAction>,
+    onDismiss: () -> Unit
+) {
+    val alpha by animateFloatAsState(
+        targetValue = if (visible) 1f else 0f,
+        animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing),
+        label = "hud_alpha"
+    )
+    val scale by animateFloatAsState(
+        targetValue = if (visible) 1f else 0.9f,
+        animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
+        label = "hud_scale"
+    )
+
+    if (alpha <= 0.01f || actions.isEmpty()) {
+        return
+    }
+
+    val dismissInteraction = remember { MutableInteractionSource() }
+    val alignments = remember {
+        listOf(
+            Alignment.TopStart,
+            Alignment.TopEnd,
+            Alignment.BottomStart,
+            Alignment.BottomEnd
+        )
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .clickable(
+                enabled = visible,
+                indication = null,
+                interactionSource = dismissInteraction
+            ) {
+                onDismiss()
+            }
+            .padding(6.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        actions.take(alignments.size).forEachIndexed { index, action ->
+            val alignment = alignments[index]
+            OrbHudActionChip(
+                action = action,
+                alpha = alpha,
+                scale = scale,
+                onDismiss = onDismiss,
+                modifier = Modifier.align(alignment)
+            )
+        }
+    }
+}
+
+@Composable
+private fun OrbHudActionChip(
+    action: OrbHudAction,
+    alpha: Float,
+    scale: Float,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val actionInteraction = remember { MutableInteractionSource() }
+    Column(
+        modifier = modifier
+            .width(48.dp)
+            .graphicsLayer {
+                this.alpha = alpha
+                scaleX = scale
+                scaleY = scale
+            },
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Surface(
+            modifier = Modifier
+                .size(44.dp)
+                .clickable(
+                    interactionSource = actionInteraction,
+                    indication = null
+                ) {
+                    action.onClick()
+                    onDismiss()
+                },
+            shape = androidx.compose.foundation.shape.CircleShape,
+            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
+            shadowElevation = 8.dp,
+            tonalElevation = 4.dp
+        ) {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = action.icon,
+                    fontSize = 18.sp,
+                    textAlign = TextAlign.Center
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(6.dp))
+
+        Text(
+            text = action.label,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.85f),
+            style = MaterialTheme.typography.labelMedium,
+            fontSize = 11.sp,
+            maxLines = 1,
+            textAlign = TextAlign.Center
+        )
+    }
 }
