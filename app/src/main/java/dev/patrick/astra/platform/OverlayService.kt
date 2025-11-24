@@ -63,6 +63,9 @@ class OverlayService :
     // Real measured size of the Compose bubble in px
     private var bubbleWidthPx: Int = 0
     private var bubbleHeightPx: Int = 0
+    private var baseBubbleWidthPx: Int = 0
+    private var hudOffsetAppliedPx: Int = 0
+    private var hudVisible: Boolean = false
     private val inDismissZoneState = mutableStateOf(false)
     private val overlaySideState = mutableStateOf(OverlaySide.Right)
     // Tracks whether the current drag sequence ever entered the dismiss zone.
@@ -168,6 +171,33 @@ class OverlayService :
                     val uiState by OverlayUiStateStore.overlayUiState.collectAsState()
 
                     val bubbleMarginPxInner = bubbleMarginPx
+                    fun adjustForHud() {
+                        val wmLocal = wm ?: return
+                        val baseWidth = if (baseBubbleWidthPx > 0) baseBubbleWidthPx else fallbackBubbleSizePx
+                        val extraWidth = (bubbleWidthPx - baseWidth).coerceAtLeast(0)
+                        val desiredOffset = if (hudVisible && overlaySideState.value == OverlaySide.Right) extraWidth else 0
+                        val delta = desiredOffset - hudOffsetAppliedPx
+                        if (delta == 0) return
+
+                        val effectiveW = if (bubbleWidthPx > 0) bubbleWidthPx else fallbackBubbleSizePx
+                        val minX = bubbleMarginPxInner
+                        val maxX = (screenWidth - effectiveW - bubbleMarginPxInner)
+                            .coerceAtLeast(minX)
+
+                        params.x = (params.x - delta).coerceIn(minX, maxX)
+                        lastWindowX = params.x
+                        lastWindowY = params.y
+                        lastWindowXF = params.x.toFloat()
+                        lastWindowYF = params.y.toFloat()
+                        hudOffsetAppliedPx = desiredOffset
+                        overlaySideState.value =
+                            if (params.x + desiredOffset + baseWidth / 2 > screenWidth / 2) {
+                                OverlaySide.Right
+                            } else {
+                                OverlaySide.Left
+                            }
+                        wmLocal.updateViewLayout(this@apply, params)
+                    }
 
                     OverlayBubble(
                         state = uiState.state,
@@ -285,6 +315,10 @@ class OverlayService :
                         onLayoutChanged = { widthPx, heightPx ->
                             bubbleWidthPx = widthPx
                             bubbleHeightPx = heightPx
+                            if (!hudVisible) {
+                                baseBubbleWidthPx = widthPx
+                            }
+                            adjustForHud()
                         },
                         isInDismissZone = inDismissZoneState.value,
                         onDismissTriggered = { dismissOverlay() },
@@ -292,7 +326,11 @@ class OverlayService :
                         onRequestTranslate = { requestTranslate() },
                         onRequestSettings = { requestSettings() },
                         onRequestHide = { requestHide() },
-                        overlaySide = overlaySideState.value
+                        overlaySide = overlaySideState.value,
+                        onHudVisibilityChanged = { visible, _ ->
+                            hudVisible = visible
+                            adjustForHud()
+                        }
                     )
                 }
             }

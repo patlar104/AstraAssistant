@@ -66,6 +66,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.cos
@@ -122,7 +123,8 @@ fun OverlayBubble(
     onRequestTranslate: () -> Unit,
     onRequestSettings: () -> Unit,
     onRequestHide: (() -> Unit)? = null,
-    overlaySide: OverlaySide
+    overlaySide: OverlaySide,
+    onHudVisibilityChanged: (Boolean, OverlaySide) -> Unit = { _, _ -> }
 ) {
     val activeEmotion = when (state) {
         is AstraState.Thinking -> state.mood
@@ -445,6 +447,10 @@ fun OverlayBubble(
         pressChangeCb(isPressing)
     }
 
+    LaunchedEffect(hudVisible, overlaySide) {
+        onHudVisibilityChanged(hudVisible, overlaySide)
+    }
+
     LaunchedEffect(isInDismissZone) {
         if (isInDismissZone) {
             // Do not reset drag interaction state when entering dismiss zone; otherwise onDragEnd
@@ -528,7 +534,8 @@ fun OverlayBubble(
     ) {
         val spacerWidth = 12.dp
         Row(
-            verticalAlignment = Alignment.CenterVertically
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.zIndex(2f)
         ) {
             if (hudVisible && overlaySide == OverlaySide.Right) {
                 OrbQuickActionsHud(
@@ -605,7 +612,8 @@ fun OverlayBubble(
         if (hudVisible) {
             Box(
                 modifier = Modifier
-                    .fillMaxSize()
+                    .matchParentSize()
+                    .zIndex(1f)
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null
@@ -873,7 +881,8 @@ private enum class OrbHudActionType { Ask, Translate, Settings, Hide }
 private fun OrbQuickActionsHud(
     visible: Boolean,
     onDismiss: () -> Unit,
-    onAction: (OrbHudActionType) -> Unit
+    onAction: (OrbHudActionType) -> Unit,
+    modifier: Modifier = Modifier
 ) {
     val alpha by animateFloatAsState(
         targetValue = if (visible) 1f else 0f,
@@ -907,7 +916,8 @@ private fun OrbQuickActionsHud(
             alpha = alpha,
             scale = scale,
             onDismiss = onDismiss,
-            onAction = onAction
+            onAction = onAction,
+            modifier = modifier
         )
     }
 }

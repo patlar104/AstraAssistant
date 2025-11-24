@@ -40,21 +40,23 @@ class TtsService : Service(), TextToSpeech.OnInitListener {
                     }
 
                     override fun onDone(utteranceId: String?) {
-                        if (tts?.isSpeaking != true) {
-                            OverlayUiStateStore.set(
-                                state = AstraState.Idle,
-                                emotion = Emotion.Neutral
-                            )
-                        }
+                        updateOverlayState(
+                            targetState = AstraState.Idle,
+                            targetEmotion = Emotion.Neutral
+                        )
                     }
 
+                    override fun onError(utteranceId: String?, errorCode: Int) {
+                        updateOverlayState(
+                            targetState = AstraState.Error(),
+                            targetEmotion = Emotion.Concerned
+                        )
+                    }
+
+                    @Deprecated("Deprecated in TextToSpeech")
+                    @Suppress("OVERRIDE_DEPRECATION")
                     override fun onError(utteranceId: String?) {
-                        if (tts?.isSpeaking != true) {
-                            OverlayUiStateStore.set(
-                                state = AstraState.Error(),
-                                emotion = Emotion.Concerned
-                            )
-                        }
+                        onError(utteranceId, TextToSpeech.ERROR)
                     }
                 }
             )
@@ -88,6 +90,15 @@ class TtsService : Service(), TextToSpeech.OnInitListener {
             null,
             System.currentTimeMillis().toString()
         )
+    }
+
+    private fun updateOverlayState(targetState: AstraState, targetEmotion: Emotion) {
+        if (tts?.isSpeaking != true) {
+            OverlayUiStateStore.set(
+                state = targetState,
+                emotion = targetEmotion
+            )
+        }
     }
 
     override fun onDestroy() {
