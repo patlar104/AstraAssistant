@@ -3,11 +3,10 @@ package dev.patrick.astra.overlay
 import android.content.Context
 import android.content.Intent
 import android.graphics.PixelFormat
-import android.view.MotionEvent
-import android.os.Build
 import android.provider.Settings
 import android.util.Log
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
 import androidx.compose.runtime.collectAsState
@@ -55,7 +54,7 @@ class OverlayService :
     private val inDismissZoneState = mutableStateOf(false)
     private val overlaySideState = mutableStateOf(OverlaySide.Right)
     private var dragEverInDismissZone: Boolean = false
-    private var hudDismissSignal: Int = 0
+    private val hudDismissSignal = mutableStateOf(0)
 
     override val viewModelStore: ViewModelStore = ViewModelStore()
 
@@ -85,12 +84,8 @@ class OverlayService :
 
         windowManager = getSystemService()
 
-        val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+        val type =
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-        } else {
-            @Suppress("DEPRECATION")
-            WindowManager.LayoutParams.TYPE_PHONE
-        }
 
         params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT,
@@ -137,6 +132,7 @@ class OverlayService :
                 AstraAssistantTheme {
                     val visualState by AssistantStateStore.visualState.collectAsState()
                     val overlayLogsEnabled by DebugFlags.overlayLogsEnabled.collectAsState()
+                    val hudDismissSignalValue by hudDismissSignal
 
                     fun currentWidth(): Int = if (bubbleWidthPx > 0) bubbleWidthPx else fallbackBubbleSizePx
                     fun currentHeight(): Int = if (bubbleHeightPx > 0) bubbleHeightPx else fallbackBubbleSizePx
@@ -318,14 +314,14 @@ class OverlayService :
                             updateTouchFlags(visible)
                             adjustForHud()
                         },
-                        hudDismissSignal = hudDismissSignal
+                        hudDismissSignal = hudDismissSignalValue
                     )
                 }
             }
         }.also { view ->
             view.setOnTouchListener { _, event ->
                 if (event.action == MotionEvent.ACTION_OUTSIDE) {
-                    hudDismissSignal++
+                    hudDismissSignal.value++
                     updateTouchFlags(false)
                     true
                 } else {
