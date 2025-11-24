@@ -8,17 +8,19 @@ import dev.patrick.astra.brains.Brain
 import dev.patrick.astra.brains.BrainResult
 import dev.patrick.astra.brains.SkillRouter
 import dev.patrick.astra.brains.llm.FakeLlmClient
-import dev.patrick.astra.ui.AstraState
-import dev.patrick.astra.ui.Emotion
-import dev.patrick.astra.stt.CloudSttEngineStub
-import dev.patrick.astra.stt.LocalWhisperEngineStub
-import dev.patrick.astra.stt.SttBackend
-import dev.patrick.astra.stt.SystemSpeechEngine
-import dev.patrick.astra.stt.TranscriptionEngine
+import dev.patrick.astra.domain.AssistantPhase
+import dev.patrick.astra.domain.AssistantStateStore
+import dev.patrick.astra.domain.AssistantVisualState
+import dev.patrick.astra.domain.Emotion
+import dev.patrick.astra.services.voice.CloudSttEngineStub
+import dev.patrick.astra.services.voice.LocalWhisperEngineStub
+import dev.patrick.astra.services.voice.SttBackend
+import dev.patrick.astra.services.voice.SystemSpeechEngine
+import dev.patrick.astra.services.voice.TranscriptionEngine
+import dev.patrick.astra.services.voice.TtsService
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.launch
 
 data class AstraUiState(
     val messages: List<AstraMessage> = emptyList(),
@@ -26,9 +28,6 @@ data class AstraUiState(
     val isListening: Boolean = false
 )
 
-/**
- * ViewModel that holds the conversation state and talks to the brain controller.
- */
 class AstraViewModel(
     application: Application
 ) : AndroidViewModel(application) {
@@ -46,6 +45,7 @@ class AstraViewModel(
         )
     )
     val uiState: StateFlow<AstraUiState> = _uiState
+    val visualState: StateFlow<AssistantVisualState> = AssistantStateStore.visualState
 
     private val context get() = getApplication<Application>()
 
@@ -56,13 +56,11 @@ class AstraViewModel(
 
     private val brainController = BrainController(
         brain = brain,
-        overlayUiStateStore = OverlayUiStateStore,
         scope = viewModelScope
     )
 
     private var transcriptionEngine: TranscriptionEngine? = null
 
-    // Future: this could be user-configurable (e.g., from settings screen).
     private val currentSttBackend: SttBackend = SttBackend.SYSTEM
 
     init {
@@ -72,27 +70,26 @@ class AstraViewModel(
     private fun ensureTranscriptionEngine() {
         if (transcriptionEngine != null) return
 
-        // For now, we always use the SystemSpeechEngine, which wraps SpeechRecognizerManager.
-        // In the future, we can branch here based on currentSttBackend and create:
-        // - LocalWhisperEngineStub
-        // - CloudSttEngineStub
         transcriptionEngine = when (currentSttBackend) {
             SttBackend.SYSTEM -> SystemSpeechEngine(context)
-            SttBackend.LOCAL_WHISPER -> LocalWhisperEngineStub() // TODO: implement real local Whisper
-            SttBackend.CLOUD_STT -> CloudSttEngineStub()         // TODO: implement real cloud STT
+            SttBackend.LOCAL_WHISPER -> LocalWhisperEngineStub()
+            SttBackend.CLOUD_STT -> CloudSttEngineStub()
         }
     }
 
     fun sendUserMessage(text: String) {
         if (text.isBlank()) return
 
-        // Add the user message and show thinking state
         _uiState.update { state ->
             state.copy(
                 messages = state.messages + AstraMessage(fromUser = true, text = text),
                 isThinking = true
             )
         }
+        AssistantStateStore.set(
+            phase = AssistantPhase.Thinking,
+            emotion = Emotion.Focused
+        )
 
         brainController.submitUserMessage(
             text = text,
@@ -122,12 +119,24 @@ class AstraViewModel(
                                 isThinking = false
                             )
                         }
+                        AssistantStateStore.set(
+                            phase = AssistantPhase.Thinking,
+                            emotion = Emotion.Curious
+                        )
+                        AssistantStateStore.update(
+                            phase = AssistantPhase.Idle,
+                            emotion = Emotion.Neutral
+                        )
                     }
 
                     is BrainResult.Ignored -> {
                         _uiState.update { state ->
                             state.copy(isThinking = false)
                         }
+                        AssistantStateStore.set(
+                            phase = AssistantPhase.Idle,
+                            emotion = Emotion.Neutral
+                        )
                     }
                 }
             },
@@ -156,7 +165,10 @@ class AstraViewModel(
                 _uiState.update { state ->
                     state.copy(isListening = false)
                 }
-                // When we get a final result, treat it like a user message.
+                AssistantStateStore.set(
+                    phase = AssistantPhase.Thinking,
+                    emotion = Emotion.Focused
+                )
                 sendUserMessage(recognizedText)
             },
             onError = { _ ->
@@ -164,7 +176,6 @@ class AstraViewModel(
                     state.copy(isListening = false)
                 }
                 setError()
-                // TODO: Optionally log or surface the error message.
             },
             onListeningChanged = { listening ->
                 _uiState.update { state ->
@@ -192,29 +203,29 @@ class AstraViewModel(
     }
 
     private fun setIdle() {
-        OverlayUiStateStore.set(
-            state = AstraState.Idle,
+        AssistantStateStore.set(
+            phase = AssistantPhase.Idle,
             emotion = Emotion.Neutral
         )
     }
 
     private fun setListening() {
-        OverlayUiStateStore.set(
-            state = AstraState.Listening(intensity = 1f),
+        AssistantStateStore.set(
+            phase = AssistantPhase.Listening,
             emotion = Emotion.Focused
         )
     }
 
     private fun setSpeaking() {
-        OverlayUiStateStore.set(
-            state = AstraState.Speaking(mood = Emotion.Happy),
+        AssistantStateStore.set(
+            phase = AssistantPhase.Speaking,
             emotion = Emotion.Happy
         )
     }
 
     private fun setError() {
-        OverlayUiStateStore.set(
-            state = AstraState.Error(),
+        AssistantStateStore.set(
+            phase = AssistantPhase.Error(reason = null),
             emotion = Emotion.Concerned
         )
     }

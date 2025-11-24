@@ -37,7 +37,8 @@ class FakeLlmClient : LlmClient {
             normalizedInput.contains("translate") -> IntentType.TRANSLATE_TEXT to true
             normalizedInput.contains("message") || normalizedInput.contains("text") -> IntentType.SEND_MESSAGE to true
             normalizedInput.trim().endsWith("?") -> IntentType.ASK_QUESTION to true
-            else -> IntentType.SMALL_TALK to false
+            normalizedInput.contains("hello") || normalizedInput.contains("hey") -> IntentType.SMALL_TALK to true
+            else -> IntentType.UNKNOWN to false
         }
 
         val arguments = when (type) {
@@ -49,7 +50,11 @@ class FakeLlmClient : LlmClient {
             else -> emptyMap()
         }
 
-        val confidence = if (isRuleHit) 0.75f else 0.4f
+        val confidence = when {
+            isRuleHit -> 0.75f
+            type == IntentType.SMALL_TALK -> 0.4f
+            else -> 0.2f
+        }
 
         return ParsedIntent(
             type = type,

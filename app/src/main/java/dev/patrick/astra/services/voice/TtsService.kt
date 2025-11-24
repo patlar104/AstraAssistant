@@ -1,4 +1,4 @@
-package dev.patrick.astra.assistant
+package dev.patrick.astra.services.voice
 
 import android.app.Service
 import android.content.Intent
@@ -7,8 +7,9 @@ import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import java.util.Locale
 import java.util.ArrayDeque
-import dev.patrick.astra.ui.AstraState
-import dev.patrick.astra.ui.Emotion
+import dev.patrick.astra.domain.AssistantPhase
+import dev.patrick.astra.domain.AssistantStateStore
+import dev.patrick.astra.domain.Emotion
 
 class TtsService : Service(), TextToSpeech.OnInitListener {
 
@@ -40,15 +41,15 @@ class TtsService : Service(), TextToSpeech.OnInitListener {
                     }
 
                     override fun onDone(utteranceId: String?) {
-                        updateOverlayState(
-                            targetState = AstraState.Idle,
+                        updateAssistantState(
+                            targetState = AssistantPhase.Idle,
                             targetEmotion = Emotion.Neutral
                         )
                     }
 
                     override fun onError(utteranceId: String?, errorCode: Int) {
-                        updateOverlayState(
-                            targetState = AstraState.Error(),
+                        updateAssistantState(
+                            targetState = AssistantPhase.Error(reason = "tts_error_$errorCode"),
                             targetEmotion = Emotion.Concerned
                         )
                     }
@@ -71,8 +72,8 @@ class TtsService : Service(), TextToSpeech.OnInitListener {
     }
 
     private fun enqueueOrSpeak(text: String) {
-        OverlayUiStateStore.set(
-            state = AstraState.Speaking(mood = Emotion.Happy),
+        AssistantStateStore.set(
+            phase = AssistantPhase.Speaking,
             emotion = Emotion.Happy
         )
         if (!isReady) {
@@ -92,10 +93,10 @@ class TtsService : Service(), TextToSpeech.OnInitListener {
         )
     }
 
-    private fun updateOverlayState(targetState: AstraState, targetEmotion: Emotion) {
+    private fun updateAssistantState(targetState: AssistantPhase, targetEmotion: Emotion) {
         if (tts?.isSpeaking != true) {
-            OverlayUiStateStore.set(
-                state = targetState,
+            AssistantStateStore.set(
+                phase = targetState,
                 emotion = targetEmotion
             )
         }
@@ -104,8 +105,8 @@ class TtsService : Service(), TextToSpeech.OnInitListener {
     override fun onDestroy() {
         tts?.stop()
         tts?.shutdown()
-        OverlayUiStateStore.set(
-            state = AstraState.Idle,
+        AssistantStateStore.set(
+            phase = AssistantPhase.Idle,
             emotion = Emotion.Neutral
         )
         super.onDestroy()

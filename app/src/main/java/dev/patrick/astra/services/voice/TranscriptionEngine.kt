@@ -1,4 +1,4 @@
-package dev.patrick.astra.stt
+package dev.patrick.astra.services.voice
 
 /**
  * Abstraction for speech-to-text engines.

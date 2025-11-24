@@ -32,6 +32,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
+import androidx.compose.material3.Switch
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -49,7 +50,11 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import dev.patrick.astra.assistant.AstraMessage
 import dev.patrick.astra.assistant.AstraUiState
 import dev.patrick.astra.assistant.AstraViewModel
-import dev.patrick.astra.platform.OverlayService
+import dev.patrick.astra.domain.AssistantPhase
+import dev.patrick.astra.domain.AssistantVisualState
+import dev.patrick.astra.domain.Emotion
+import dev.patrick.astra.domain.DebugFlags
+import dev.patrick.astra.overlay.OverlayService
 import dev.patrick.astra.ui.theme.AstraAssistantTheme
 
 class MainActivity : ComponentActivity() {
@@ -75,6 +80,8 @@ fun AstraHomeScreen(
     viewModel: AstraViewModel = viewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val visualState by viewModel.visualState.collectAsState()
+    val overlayLogsEnabled by DebugFlags.overlayLogsEnabled.collectAsState()
     var inputText by rememberSaveable { mutableStateOf("") }
     val context = LocalContext.current
 
@@ -121,6 +128,8 @@ fun AstraHomeScreen(
     ) { paddingValues ->
         AstraHomeScreenContent(
             uiState = uiState,
+            visualState = visualState,
+            overlayLogsEnabled = overlayLogsEnabled,
             inputText = inputText,
             onInputChanged = { inputText = it },
             onSend = {
@@ -129,6 +138,7 @@ fun AstraHomeScreen(
             },
             onStartVoice = { viewModel.startVoiceInput() },
             onStopVoice = { viewModel.stopVoiceInput() },
+            onToggleOverlayLogs = { DebugFlags.setOverlayLogsEnabled(it) },
             modifier = Modifier.padding(paddingValues)
         )
     }
@@ -140,11 +150,14 @@ fun AstraHomeScreen(
 @Composable
 private fun AstraHomeScreenContent(
     uiState: AstraUiState,
+    visualState: AssistantVisualState,
+    overlayLogsEnabled: Boolean,
     inputText: String,
     onInputChanged: (String) -> Unit,
     onSend: () -> Unit,
     onStartVoice: () -> Unit,
     onStopVoice: () -> Unit,
+    onToggleOverlayLogs: (Boolean) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -166,7 +179,7 @@ private fun AstraHomeScreenContent(
         ) == PackageManager.PERMISSION_GRANTED
 
         if (hasPermission) {
-            if (uiState.isListening) {
+            if (visualState.phase is AssistantPhase.Listening) {
                 onStopVoice()
             } else {
                 onStartVoice()
@@ -214,7 +227,7 @@ private fun AstraHomeScreenContent(
             }
         }
 
-        if (uiState.isThinking) {
+        if (visualState.phase is AssistantPhase.Thinking) {
             Text(
                 text = "Astra is thinking…",
                 style = MaterialTheme.typography.bodySmall,
@@ -222,7 +235,7 @@ private fun AstraHomeScreenContent(
             )
         }
 
-        if (uiState.isListening) {
+        if (visualState.phase is AssistantPhase.Listening) {
             Text(
                 text = "Listening…",
                 style = MaterialTheme.typography.bodySmall,
@@ -251,7 +264,7 @@ private fun AstraHomeScreenContent(
                 onClick = { handleMicClick() },
                 modifier = Modifier.padding(end = 8.dp)
             ) {
-                val label = if (uiState.isListening) "Stop" else "Mic"
+                val label = if (visualState.phase is AssistantPhase.Listening) "Stop" else "Mic"
                 Text(label)
             }
 
@@ -261,6 +274,23 @@ private fun AstraHomeScreenContent(
             ) {
                 Text("Send")
             }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "Overlay debug logs",
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.weight(1f)
+            )
+            Switch(
+                checked = overlayLogsEnabled,
+                onCheckedChange = onToggleOverlayLogs
+            )
         }
     }
 }
@@ -311,11 +341,17 @@ fun AstraHomePreview() {
                 isThinking = false,
                 isListening = false
             ),
+            visualState = AssistantVisualState(
+                phase = AssistantPhase.Idle,
+                emotion = Emotion.Neutral
+            ),
+            overlayLogsEnabled = false,
             inputText = "",
             onInputChanged = {},
             onSend = {},
             onStartVoice = {},
             onStopVoice = {},
+            onToggleOverlayLogs = {},
             modifier = Modifier
         )
     }

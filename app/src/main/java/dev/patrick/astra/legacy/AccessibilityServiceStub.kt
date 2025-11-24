@@ -1,4 +1,4 @@
-package dev.patrick.astra.platform
+package dev.patrick.astra.legacy
 
 import android.accessibilityservice.AccessibilityService
 import android.view.accessibility.AccessibilityEvent

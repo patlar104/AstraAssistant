@@ -1,4 +1,4 @@
-package dev.patrick.astra.ui
+package dev.patrick.astra.overlay
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -19,8 +19,10 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.awaitDragOrCancellation
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.awaitTouchSlopOrCancellation
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Box
@@ -29,7 +31,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -44,6 +45,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -57,16 +59,28 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.input.pointer.changedToDownIgnoreConsumed
+import androidx.compose.ui.input.pointer.consume
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
+import dev.patrick.astra.domain.AssistantPhase
+import dev.patrick.astra.domain.AssistantVisualState
+import dev.patrick.astra.domain.Emotion
+import dev.patrick.astra.domain.EmotionPalette
+import dev.patrick.astra.domain.ExpressionShape
+import dev.patrick.astra.domain.StateEnergy
+import dev.patrick.astra.domain.blendPalettes
+import dev.patrick.astra.domain.expressionFor
+import dev.patrick.astra.domain.toEnergy
+import dev.patrick.astra.domain.toPalette
 import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.cos
@@ -80,36 +94,20 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
-// NOTE: Old container scale (1.4x) made the window ~134dp while the orb visuals stay near 96dp,
-// which inflated the touch window and mismatched OverlayService bounds. Keep only a small pad.
 const val ORB_BASE_DP: Float = 96f
-const val ORB_VISUAL_CONTAINER_SCALE: Float = 1.1f // tiny canvas pad to avoid aura/glow clipping at edges
+const val ORB_VISUAL_CONTAINER_SCALE: Float = 1.1f
 
 enum class OverlaySide { Left, Right }
 private enum class OrbInteractionMode { Idle, Dragging, HudOpen }
 
-// Summary:
-// - Hitbox == 96dp core (Box.size(baseSize)); canvas has only 10% padding for glow.
-// - Drag uses detectDragGestures; taps/long-press handled manually to avoid HUD glitches.
-// - Long press toggles didLongPress so taps never fire afterwards.
+private const val CORE_RADIUS_RATIO = 0.38f
+private const val AURA_RADIUS_RATIO = 0.52f
+private const val OUTER_GLOW_MULTIPLIER = 1.18f
 
-private const val CORE_RADIUS_RATIO = 0.38f // core spans ~76% of the 96dp diameter (meets 30-40% radius spec)
-private const val AURA_RADIUS_RATIO = 0.52f // aura expands slightly beyond the hitbox but stays inside the 1.1x canvas
-private const val OUTER_GLOW_MULTIPLIER = 1.18f // keeps glow visible without clipping
-
-/**
- * Optimized Canvas-driven overlay orb:
- * - Single drawing surface to reduce overdraw.
- * - Centralized animations to limit recompositions.
- * - Preserves drag/gaze/blink and state-driven visuals.
- *
- * OverlayService remains responsible for translating dx/dy into WindowManager.LayoutParams updates.
- */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun OverlayBubble(
-    state: AstraState,
-    emotion: Emotion,
+    visualState: AssistantVisualState,
     onTap: () -> Unit,
     onLongPress: () -> Unit,
     onDrag: (dx: Float, dy: Float) -> Unit,
@@ -124,21 +122,18 @@ fun OverlayBubble(
     onRequestSettings: () -> Unit,
     onRequestHide: (() -> Unit)? = null,
     overlaySide: OverlaySide,
-    onHudVisibilityChanged: (Boolean, OverlaySide) -> Unit = { _, _ -> }
+    onHudVisibilityChanged: (Boolean, OverlaySide) -> Unit = { _, _ -> },
+    hudDismissSignal: Int = 0
 ) {
-    val activeEmotion = when (state) {
-        is AstraState.Thinking -> state.mood
-        is AstraState.Speaking -> state.mood
-        else -> emotion
+    val paletteTarget = visualState.emotion.toPalette()
+    val energy = visualState.toEnergy()
+    val expressionTarget = remember(visualState) {
+        expressionFor(visualState.phase, visualState.emotion)
     }
-    val paletteTarget = activeEmotion.toPalette()
-    val energy = state.toEnergy()
-    val expressionTarget = remember(state, activeEmotion) { expressionFor(state, activeEmotion) }
 
     var isDragging by remember { mutableStateOf(false) }
     var dragMagnitude by remember { mutableStateOf(0f) }
     var totalDrag by remember { mutableStateOf(Offset.Zero) }
-    var didLongPress by remember { mutableStateOf(false) }
     var gazeTarget by remember { mutableStateOf(Offset.Zero) }
     var hudVisible by remember { mutableStateOf(false) }
 
@@ -157,7 +152,6 @@ fun OverlayBubble(
     var interactionMode by remember { mutableStateOf(OrbInteractionMode.Idle) }
     fun closeHud(resetInteractionState: Boolean = true) {
         hudVisible = false
-        didLongPress = false
         if (resetInteractionState) {
             interactionMode = OrbInteractionMode.Idle
             isDragging = false
@@ -248,8 +242,8 @@ fun OverlayBubble(
 
     val targetStretchScale = when {
         isDragging -> 1.04f + (dragMagnitude / 70f).coerceIn(0f, 0.06f)
-        state is AstraState.Listening -> 1.035f
-        state is AstraState.Speaking -> 1.045f
+        visualState.phase is AssistantPhase.Listening -> 1.035f
+        visualState.phase is AssistantPhase.Speaking -> 1.045f
         else -> 1f
     }.coerceAtMost(1.1f)
 
@@ -264,22 +258,22 @@ fun OverlayBubble(
 
     val blinkScale = remember { Animatable(1f) }
 
-    LaunchedEffect(state, activeEmotion) {
+    LaunchedEffect(visualState) {
         blinkScale.snapTo(1f)
-        if (state is AstraState.Speaking) {
+        if (visualState.phase is AssistantPhase.Speaking) {
             return@LaunchedEffect
         }
 
-        if (state is AstraState.Error || activeEmotion == Emotion.Concerned) {
+        if (visualState.phase is AssistantPhase.Error || visualState.emotion == Emotion.Concerned) {
             blinkScale.animateTo(0.1f, tween(durationMillis = 60))
             blinkScale.animateTo(1f, tween(durationMillis = 60))
         }
 
         val random = Random(System.currentTimeMillis())
         while (isActive) {
-            val waitMillis = when {
-                state is AstraState.Listening -> random.nextLong(5000L, 7000L)
-                state is AstraState.Thinking -> random.nextLong(7000L, 10000L)
+            val waitMillis = when (visualState.phase) {
+                AssistantPhase.Listening -> random.nextLong(5000L, 7000L)
+                AssistantPhase.Thinking -> random.nextLong(7000L, 10000L)
                 else -> random.nextLong(3000L, 6000L)
             }
             delay(waitMillis)
@@ -304,7 +298,7 @@ fun OverlayBubble(
 
     val blinkScaleY = blinkScale.value
 
-    val eyeBaseAlpha = when (activeEmotion) {
+    val eyeBaseAlpha = when (visualState.emotion) {
         Emotion.Excited, Emotion.Happy -> 1f
         Emotion.Curious, Emotion.Focused -> 0.94f
         Emotion.Neutral -> 0.88f
@@ -316,7 +310,7 @@ fun OverlayBubble(
         label = "eye_alpha"
     )
 
-    val baseEyeScaleYTarget = when (activeEmotion) {
+    val baseEyeScaleYTarget = when (visualState.emotion) {
         Emotion.Focused, Emotion.Concerned -> 0.68f
         Emotion.Excited -> 1.05f
         Emotion.Happy -> 1.0f
@@ -342,99 +336,101 @@ fun OverlayBubble(
     val expressionEyeSeparation = eyeSeparationAnim.value
     val expressionEyeTilt = eyeTiltAnim.value
     val expressionMouthCurve = mouthCurveAnim.value
-    val wobbleWave = sin((pulsePhase * 2f * PI).toDouble()).toFloat()
-    val wobbleStretch = wobbleWave * expressionWobble * 0.35f
-    val squashXWithWobble = expressionSquashX * (1f + wobbleStretch)
-    val squashYWithWobble = expressionSquashY * (1f - wobbleStretch * 0.85f)
-    val tiltFromWobble = wobbleWave * expressionWobble * 2.2f
-    val tiltThinking = if (state is AstraState.Thinking) {
-        sin(Math.toRadians(thinkingPhase.toDouble())).toFloat() * 1.5f
-    } else 0f
-    val finalTilt = expressionTilt + tiltFromWobble + tiltThinking
 
-    // NOTE: Prior hitbox equaled the 96dp core while glow extended past it, so edges could clip and
-    // the invisible window size differed from what OverlayService assumed. Use a larger visual
-    // container but keep the pointer hitbox tight to the 96dp core.
     val baseSize = ORB_BASE_DP.dp
     val containerSize = baseSize * ORB_VISUAL_CONTAINER_SCALE
     val baseSizePx = with(LocalDensity.current) { baseSize.toPx() }
-    val dragModifier = Modifier.pointerInput(hudVisible) {
-        detectDragGestures(
-            onDragStart = { offset ->
-                if (hudVisible) return@detectDragGestures
-                interactionMode = OrbInteractionMode.Dragging
-                isDragging = true
-                hudVisible = false
-                didLongPress = false
-                dragMagnitude = 0f
-                totalDrag = Offset.Zero
-                val center = Offset(baseSizePx / 2f, baseSizePx / 2f)
-                val delta = offset - center
-                val distance = delta.getDistance()
-                gazeTarget = if (distance > 0f) {
-                    Offset(delta.x / distance, delta.y / distance) * 0.12f
-                } else {
-                    Offset.Zero
+    val containerSizePx = with(LocalDensity.current) { containerSize.toPx() }
+    val viewConfiguration = LocalViewConfiguration.current
+    val scope = rememberCoroutineScope()
+
+    val lastReportedSize = remember { mutableStateOf(IntSize.Zero) }
+    val gestureModifier = Modifier.pointerInput(hudVisible) {
+        awaitEachGesture {
+            val down = awaitFirstDown(requireUnconsumed = false)
+            val downPosition = down.position
+            interactionMode = OrbInteractionMode.Idle
+            var longPressTriggered = false
+            var dragStarted = false
+            totalDrag = Offset.Zero
+            dragMagnitude = 0f
+
+            val center = Offset(baseSizePx / 2f, baseSizePx / 2f)
+            val delta = downPosition - center
+            val distance = delta.getDistance()
+            gazeTarget = if (distance > 0f) {
+                Offset(delta.x / distance, delta.y / distance) * 0.12f
+            } else Offset.Zero
+
+            val longPressJob = scope.launch {
+                delay(viewConfiguration.longPressTimeoutMillis)
+                if (!dragStarted) {
+                    longPressTriggered = true
+                    interactionMode = OrbInteractionMode.HudOpen
+                    hudVisible = true
+                    longPressCb()
                 }
-            },
-            onDrag = { change, dragAmount ->
-                if (interactionMode != OrbInteractionMode.Dragging) return@detectDragGestures
-                totalDrag += dragAmount
-                val (dx, dy) = dragAmount
-                dragMagnitude = hypot(totalDrag.x, totalDrag.y)
-                val magnitude = hypot(dx, dy)
+            }
+
+            var pointer = down
+            val change = awaitTouchSlopOrCancellation(pointer.id) { change, over ->
+                if (hudVisible) return@awaitTouchSlopOrCancellation
+                if (!dragStarted) {
+                    dragStarted = true
+                    longPressJob.cancel()
+                    interactionMode = OrbInteractionMode.Dragging
+                    isDragging = true
+                    hudVisible = false
+                }
+                totalDrag += over
+                dragMagnitude = totalDrag.getDistance()
+                val magnitude = over.getDistance()
                 if (magnitude > 0f) {
-                    val normalized = Offset(dx / magnitude, dy / magnitude)
+                    val normalized = Offset(over.x / magnitude, over.y / magnitude)
                     gazeTarget = normalized * 0.12f
                 }
-
                 change.consume()
-                dragCb(dx, dy)
-            },
-            onDragEnd = {
-                if (interactionMode != OrbInteractionMode.Dragging) return@detectDragGestures
-                interactionMode = OrbInteractionMode.Idle
-                isDragging = false
-                dragMagnitude = 0f
-                totalDrag = Offset.Zero
-                gazeTarget = Offset.Zero
-                dragEndCb()
-            },
-            onDragCancel = {
-                if (interactionMode != OrbInteractionMode.Dragging) return@detectDragGestures
-                interactionMode = OrbInteractionMode.Idle
-                isDragging = false
-                dragMagnitude = 0f
-                totalDrag = Offset.Zero
-                gazeTarget = Offset.Zero
-                dragEndCb()
+                dragCb(over.x, over.y)
             }
-        )
-    }
 
-    val tapAndLongPressModifier = Modifier.pointerInput(hudVisible) {
-        detectTapGestures(
-            onTap = {
-                if (!hudVisible && interactionMode == OrbInteractionMode.Idle) {
+            pointer = change ?: pointer
+
+            while (dragStarted && pointer.pressed) {
+                val dragEvent = awaitDragOrCancellation(pointer.id) ?: break
+                val delta = dragEvent.positionChange()
+                if (delta != Offset.Zero) {
+                    totalDrag += delta
+                    dragMagnitude = totalDrag.getDistance()
+                    val magnitude = delta.getDistance()
+                    if (magnitude > 0f) {
+                        val normalized = Offset(delta.x / magnitude, delta.y / magnitude)
+                        gazeTarget = normalized * 0.12f
+                    }
+                    dragEvent.consume()
+                    dragCb(delta.x, delta.y)
+                }
+                pointer = dragEvent
+            }
+
+            longPressJob.cancel()
+
+            if (dragStarted) {
+                interactionMode = OrbInteractionMode.Idle
+                isDragging = false
+                dragMagnitude = 0f
+                totalDrag = Offset.Zero
+                gazeTarget = Offset.Zero
+                dragEndCb()
+            } else if (longPressTriggered) {
+                // long press already handled
+            } else {
+                val up = pointer
+                val totalDistance = (up.position - downPosition).getDistance()
+                if (totalDistance <= viewConfiguration.touchSlop) {
                     tapCb()
                 }
-            },
-            onLongPress = { offset ->
-                if (hudVisible) return@detectTapGestures
-                interactionMode = OrbInteractionMode.HudOpen
-                hudVisible = true
-                didLongPress = true
-                val center = Offset(baseSizePx / 2f, baseSizePx / 2f)
-                val delta = offset - center
-                val distance = delta.getDistance()
-                gazeTarget = if (distance > 0f) {
-                    Offset(delta.x / distance, delta.y / distance) * 0.12f
-                } else {
-                    Offset.Zero
-                }
-                longPressCb()
             }
-        )
+        }
     }
 
     val smoothedGaze by animateOffsetAsState(
@@ -453,8 +449,6 @@ fun OverlayBubble(
 
     LaunchedEffect(isInDismissZone) {
         if (isInDismissZone) {
-            // Do not reset drag interaction state when entering dismiss zone; otherwise onDragEnd
-            // gets skipped and the service never sees the dismiss gesture.
             closeHud(resetInteractionState = false)
         }
     }
@@ -464,10 +458,14 @@ fun OverlayBubble(
     val eyeGazeY = smoothedGaze.y.coerceIn(-maxEyeOffset, maxEyeOffset)
 
     val pulseScale = run {
-        val wave = (0.5f - abs(pulsePhase - 0.5f)) * 2f // triangle 0..1
+        val wave = (0.5f - abs(pulsePhase - 0.5f)) * 2f
         val baseAmplitude = 0.03f
         val pulseAmplitude = baseAmplitude * (0.3f + energy.energy * 0.7f)
         1f + (pulseAmplitude * (wave - 0.5f) * 2f)
+    }
+
+    LaunchedEffect(hudDismissSignal) {
+        closeHud()
     }
 
     val squashFactor = if (isDragging) (dragMagnitude / 70f).coerceIn(0f, 0.12f) else 0f
@@ -481,29 +479,23 @@ fun OverlayBubble(
     val combinedScaleX = pulseScale * stretchScale * pressedScale * (1f + squashFactor) * dismissScale
     val combinedScaleY = pulseScale * stretchScale * pressedScale * (1f - squashFactor * 0.8f) * dismissScale
 
-    val breathingScale = if (state is AstraState.Idle || state is AstraState.Listening) {
+    val breathingScale = if (visualState.phase is AssistantPhase.Idle || visualState.phase is AssistantPhase.Listening) {
         1f + sin(breathPhase.toDouble()).toFloat() * 0.015f
-    } else {
-        1f
-    }
+    } else 1f
 
-    val speakingPulse = if (state is AstraState.Speaking) {
+    val speakingPulse = if (visualState.phase is AssistantPhase.Speaking) {
         ((sin(speakingPulsePhase.toDouble()) + 1f) * 0.5f).toFloat()
-    } else {
-        0f
-    }
+    } else 0f
 
     val speakingAuraScale = 1f + 0.08f * speakingPulse
-    val breathingGlowBoost = if (state is AstraState.Idle || state is AstraState.Listening) {
+    val breathingGlowBoost = if (visualState.phase is AssistantPhase.Idle || visualState.phase is AssistantPhase.Listening) {
         1f + sin(breathPhase.toDouble()).toFloat() * 0.015f
-    } else {
-        1f
-    }
+    } else 1f
     val speakingGlowBoost = 1f + 0.1f * speakingPulse
 
     val paletteForState = if (speakingPulse > 0f) {
         currentPalette.copy(
-            coreColor = lerp(currentPalette.coreColor, Color.White, 0.1f * speakingPulse)
+            coreColor = androidx.compose.ui.graphics.lerp(currentPalette.coreColor, Color.White, 0.1f * speakingPulse)
         )
     } else {
         currentPalette
@@ -511,16 +503,16 @@ fun OverlayBubble(
 
     val dismissColor = Color(0xFFE15B56)
     val paletteWithDismiss = paletteForState.copy(
-        coreColor = lerp(paletteForState.coreColor, dismissColor.copy(alpha = 0.9f), 0.5f * dismissHighlight),
-        auraColor = lerp(paletteForState.auraColor, dismissColor.copy(alpha = 0.6f), 0.4f * dismissHighlight),
-        glowColor = lerp(paletteForState.glowColor, dismissColor.copy(alpha = 0.35f), 0.35f * dismissHighlight),
-        eyeColor = lerp(paletteForState.eyeColor, Color.White, 0.08f * dismissHighlight)
+        coreColor = androidx.compose.ui.graphics.lerp(paletteForState.coreColor, dismissColor.copy(alpha = 0.9f), 0.5f * dismissHighlight),
+        auraColor = androidx.compose.ui.graphics.lerp(paletteForState.auraColor, dismissColor.copy(alpha = 0.6f), 0.4f * dismissHighlight),
+        glowColor = androidx.compose.ui.graphics.lerp(paletteForState.glowColor, dismissColor.copy(alpha = 0.35f), 0.35f * dismissHighlight),
+        eyeColor = androidx.compose.ui.graphics.lerp(paletteForState.eyeColor, Color.White, 0.08f * dismissHighlight)
     )
 
     val auraAlphaScaled = auraAlpha * breathingGlowBoost * speakingGlowBoost * (1f - 0.12f * dismissHighlight)
     val auraScale = breathingScale * speakingAuraScale * (1f - 0.05f * dismissHighlight).coerceAtLeast(0.85f)
 
-    val errorShake = if (state is AstraState.Error) {
+    val errorShake = if (visualState.phase is AssistantPhase.Error) {
         (pulsePhase - 0.5f) * 5f
     } else 0f
 
@@ -528,7 +520,10 @@ fun OverlayBubble(
         modifier = modifier
             .wrapContentSize()
             .onGloballyPositioned {
-                onLayoutChanged?.invoke(it.size.width, it.size.height)
+                if (it.size != lastReportedSize.value) {
+                    lastReportedSize.value = it.size
+                    onLayoutChanged?.invoke(containerSizePx.roundToInt(), containerSizePx.roundToInt())
+                }
             },
         contentAlignment = Alignment.Center
     ) {
@@ -555,16 +550,16 @@ fun OverlayBubble(
 
             Box(
                 modifier = Modifier
-                    .size(baseSize) // hitbox matches the ~96dp orb instead of the larger glow container
-                    .then(dragModifier)
-                    .then(tapAndLongPressModifier),
+                    .size(containerSize)
+                    .then(gestureModifier),
                 contentAlignment = Alignment.Center
             ) {
                 Canvas(
                     modifier = Modifier
-                        .size(containerSize)
+                        .fillMaxSize()
                 ) {
                     drawOrb(
+                        pulsePhase = pulsePhase,
                         palette = paletteWithDismiss,
                         energy = energy,
                         auraAlpha = auraAlphaScaled,
@@ -575,17 +570,18 @@ fun OverlayBubble(
                         eyeGazeX = eyeGazeX,
                         eyeGazeY = eyeGazeY,
                         thinkingPhase = thinkingPhase,
-                        state = state,
+                        phase = visualState.phase,
                         errorShake = errorShake,
                         baseSizePx = baseSizePx,
                         breathingScale = breathingScale,
                         auraScale = auraScale,
-                        squashX = squashXWithWobble,
-                        squashY = squashYWithWobble,
-                        tiltDegrees = finalTilt,
+                        squashX = expressionSquashX,
+                        squashY = expressionSquashY,
+                        tiltDegrees = expressionTilt,
                         eyeSeparationFactor = expressionEyeSeparation,
                         eyeTiltDegrees = expressionEyeTilt,
                         mouthCurve = expressionMouthCurve,
+                        expressionWobble = expressionWobble,
                         dismissHighlight = dismissHighlight,
                         dismissOverlayColor = dismissColor
                     )
@@ -608,24 +604,11 @@ fun OverlayBubble(
                 )
             }
         }
-
-        if (hudVisible) {
-            Box(
-                modifier = Modifier
-                    .matchParentSize()
-                    .zIndex(1f)
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null
-                    ) {
-                        closeHud()
-                    }
-            )
-        }
     }
 }
 
 private fun DrawScope.drawOrb(
+    pulsePhase: Float,
     palette: EmotionPalette,
     energy: StateEnergy,
     auraAlpha: Float,
@@ -636,7 +619,7 @@ private fun DrawScope.drawOrb(
     eyeGazeX: Float,
     eyeGazeY: Float,
     thinkingPhase: Float,
-    state: AstraState,
+    phase: AssistantPhase,
     errorShake: Float,
     baseSizePx: Float,
     breathingScale: Float,
@@ -647,19 +630,30 @@ private fun DrawScope.drawOrb(
     eyeSeparationFactor: Float,
     eyeTiltDegrees: Float,
     mouthCurve: Float,
+    expressionWobble: Float,
     dismissHighlight: Float,
     dismissOverlayColor: Color
 ) {
+    val wobbleWave = sin((pulsePhase * 2f * PI).toDouble()).toFloat()
+    val wobbleStretch = wobbleWave * expressionWobble * 0.35f
+    val squashXWithWobble = squashX * (1f + wobbleStretch)
+    val squashYWithWobble = squashY * (1f - wobbleStretch * 0.85f)
+    val tiltFromWobble = wobbleWave * expressionWobble * 2.2f
+    val tiltThinking = if (phase is AssistantPhase.Thinking) {
+        sin(Math.toRadians(thinkingPhase.toDouble())).toFloat() * 1.5f
+    } else 0f
+    val finalTilt = tiltDegrees + tiltFromWobble + tiltThinking
+
     val center = Offset(size.width / 2f + errorShake, size.height / 2f)
     val orbDiameterPx = baseSizePx.coerceAtMost(min(size.width, size.height))
     val baseCoreRadius = orbDiameterPx * CORE_RADIUS_RATIO
     val baseAuraRadius = orbDiameterPx * AURA_RADIUS_RATIO
     val globalScaleX = combinedScaleX * breathingScale
     val globalScaleY = combinedScaleY * breathingScale
-    val coreRadiusX = baseCoreRadius * squashX * globalScaleX
-    val coreRadiusY = baseCoreRadius * squashY * globalScaleY
-    val auraRadiusX = baseAuraRadius * squashX * combinedScaleX * auraScale
-    val auraRadiusY = baseAuraRadius * squashY * combinedScaleY * auraScale
+    val coreRadiusX = baseCoreRadius * squashXWithWobble * globalScaleX
+    val coreRadiusY = baseCoreRadius * squashYWithWobble * globalScaleY
+    val auraRadiusX = baseAuraRadius * squashXWithWobble * combinedScaleX * auraScale
+    val auraRadiusY = baseAuraRadius * squashYWithWobble * combinedScaleY * auraScale
     val outerGlowRadiusX = auraRadiusX * OUTER_GLOW_MULTIPLIER
     val outerGlowRadiusY = auraRadiusY * OUTER_GLOW_MULTIPLIER
     val specRadius = min(coreRadiusX, coreRadiusY) * 0.55f
@@ -671,8 +665,8 @@ private fun DrawScope.drawOrb(
     val eyeTiltedLeft = rotateOffset(Offset(-baseEyeOffsetX, baseEyeOffsetY + eyeMoodShift), eyeTiltDegrees)
     val eyeTiltedRight = rotateOffset(Offset(baseEyeOffsetX, baseEyeOffsetY + eyeMoodShift), eyeTiltDegrees)
     val pupilOffset = Offset(eyeGazeX * eyeRadius, eyeGazeY * eyeRadius)
-    val blendedMouthColor = lerp(palette.coreColor, palette.eyeColor, 0.35f)
-    val mouthColor = if (mouthCurve < 0f) lerp(blendedMouthColor, Color.Black, 0.25f) else blendedMouthColor
+    val blendedMouthColor = androidx.compose.ui.graphics.lerp(palette.coreColor, palette.eyeColor, 0.35f)
+    val mouthColor = if (mouthCurve < 0f) androidx.compose.ui.graphics.lerp(blendedMouthColor, Color.Black, 0.25f) else blendedMouthColor
     val mouthArcRadiusX = coreRadiusX * 0.7f
     val mouthArcRadiusY = coreRadiusY * 0.45f
     val mouthYOffset = coreRadiusY * 0.45f
@@ -687,13 +681,13 @@ private fun DrawScope.drawOrb(
     val arcColor = palette.glowColor.copy(alpha = 0.65f)
     val specOffset = Offset(-coreRadiusX * 0.35f, -coreRadiusY * 0.35f)
     val dismissCrossAlpha = 0.35f * dismissHighlight
-    val dismissCrossColor = lerp(dismissOverlayColor, Color.White, 0.3f).copy(alpha = dismissCrossAlpha)
+    val dismissCrossColor = androidx.compose.ui.graphics.lerp(dismissOverlayColor, Color.White, 0.3f).copy(alpha = dismissCrossAlpha)
     val dismissCrossSize = min(coreRadiusX, coreRadiusY) * 0.45f
     val dismissCrossStroke = max(2.dp.toPx(), dismissCrossSize * 0.08f)
 
     withTransform({
         translate(center.x, center.y)
-        rotate(tiltDegrees)
+        rotate(finalTilt)
     }) {
         drawOval(
             brush = Brush.radialGradient(
@@ -721,7 +715,7 @@ private fun DrawScope.drawOrb(
             size = Size(outerGlowRadiusX * 2, outerGlowRadiusY * 2)
         )
 
-        if (state is AstraState.Thinking) {
+        if (phase is AssistantPhase.Thinking) {
             rotate(thinkingPhase, Offset.Zero) {
                 drawArc(
                     color = arcColor,
@@ -762,7 +756,7 @@ private fun DrawScope.drawOrb(
             size = Size(specRadius * 2, specRadius * 2)
         )
 
-        if (state is AstraState.Error) {
+        if (phase is AssistantPhase.Error) {
             drawOval(
                 color = Color(0x66FF7043),
                 topLeft = Offset(-coreRadiusX, -coreRadiusY),
@@ -837,7 +831,6 @@ private fun DrawScope.drawEye(
         size = Size(radius * 2, radius * 2 * heightScale)
     )
 
-    // Pupil
     val pupilRadius = radius * 0.35f
     val pupilCenter = center + pupilOffset
     drawCircle(
@@ -933,14 +926,14 @@ private fun OrbHudPill(
 ) {
     if (actions.isEmpty()) return
 
-        Surface(
-            modifier = modifier
-                .wrapContentSize()
-                .graphicsLayer {
-                    this.alpha = alpha
-                    scaleX = scale
-                    scaleY = scale
-                },
+    Surface(
+        modifier = modifier
+            .wrapContentSize()
+            .graphicsLayer {
+                this.alpha = alpha
+                scaleX = scale
+                scaleY = scale
+            },
         shape = RoundedCornerShape(999.dp),
         color = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
         tonalElevation = 8.dp,

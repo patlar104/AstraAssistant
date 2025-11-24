@@ -17,6 +17,12 @@ class ConversationMemory(
 ) {
     private val entries = ArrayDeque<MemoryEntry>()
 
+    fun copy(): ConversationMemory {
+        val copy = ConversationMemory(maxEntries)
+        copy.entries.addAll(entries)
+        return copy
+    }
+
     fun addUserMessage(text: String) {
         entries.addLast(MemoryEntry(user = text))
         trim()
@@ -30,6 +36,14 @@ class ConversationMemory(
             entries.addLast(last.copy(assistant = text))
         }
         trim()
+    }
+
+    fun withUserMessage(text: String): ConversationMemory {
+        return copy().also { it.addUserMessage(text) }
+    }
+
+    fun withAssistantReply(text: String): ConversationMemory {
+        return copy().also { it.addAssistantReply(text) }
     }
 
     fun snapshot(): List<MemoryEntry> = entries.toList()

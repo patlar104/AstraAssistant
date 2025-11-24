@@ -30,11 +30,11 @@
         </activity>
 
         <service
-            android:name=".assistant.TtsService"
+            android:name=".services.voice.TtsService"
             android:exported="false" />
 
         <service
-            android:name="dev.patrick.astra.platform.OverlayService"
+            android:name="dev.patrick.astra.overlay.OverlayService"
             android:exported="false" />
     </application>
 

@@ -1,4 +1,4 @@
-package dev.patrick.astra.platform
+package dev.patrick.astra.legacy
 
 import android.content.Context
 import android.content.Intent

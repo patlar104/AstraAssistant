@@ -1,4 +1,4 @@
-package dev.patrick.astra.assistant
+package dev.patrick.astra.legacy
 
 /**
  * Represents a message in the Astra conversation.

@@ -1,4 +1,4 @@
-package dev.patrick.astra.assistant
+package dev.patrick.astra.services.voice
 
 import android.content.Context
 import android.content.Intent

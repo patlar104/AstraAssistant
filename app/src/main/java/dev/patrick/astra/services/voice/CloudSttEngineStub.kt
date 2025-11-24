@@ -1,4 +1,4 @@
-package dev.patrick.astra.stt
+package dev.patrick.astra.services.voice
 
 /**
  * Stub implementation for a future cloud-based STT engine.

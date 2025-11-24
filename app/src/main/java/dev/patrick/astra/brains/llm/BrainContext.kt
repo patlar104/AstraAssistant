@@ -9,12 +9,18 @@ data class BrainContext(
 ) {
 
     fun withUpdatedUserMessage(message: String): BrainContext {
-        memory.addUserMessage(message)
-        return this.copy(lastUserIntent = message)
+        val nextMemory = memory.withUserMessage(message)
+        return this.copy(
+            memory = nextMemory,
+            lastUserIntent = message
+        )
     }
 
     fun withAssistantReply(reply: String): BrainContext {
-        memory.addAssistantReply(reply)
-        return this.copy(lastAssistantReply = reply)
+        val nextMemory = memory.withAssistantReply(reply)
+        return this.copy(
+            memory = nextMemory,
+            lastAssistantReply = reply
+        )
     }
 }

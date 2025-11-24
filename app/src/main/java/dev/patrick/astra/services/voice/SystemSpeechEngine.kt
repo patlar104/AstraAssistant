@@ -1,7 +1,7 @@
-package dev.patrick.astra.stt
+package dev.patrick.astra.services.voice
 
 import android.content.Context
-import dev.patrick.astra.assistant.SpeechRecognizerManager
+import dev.patrick.astra.services.voice.SpeechRecognizerManager
 
 /**
  * TranscriptionEngine implementation that uses the existing
