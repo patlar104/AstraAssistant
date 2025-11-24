@@ -1,66 +1,97 @@
 package dev.patrick.astra.brains
 
+import android.util.Log
 import dev.patrick.astra.brains.intent.ActionPlan
 import dev.patrick.astra.brains.intent.ParsedIntent
 import dev.patrick.astra.brains.llm.BrainContext
 import dev.patrick.astra.brains.llm.FakeLlmClient
 import dev.patrick.astra.brains.llm.LlmClient
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+
+private const val TAG = "Brain"
 
 /**
  * Coordinates intent classification and routing.
  */
 class Brain(
-    private val llmClient: LlmClient = FakeLlmClient()
-    // Later: inject persistence, metrics, or real LLM clients.
+    private val llmClient: LlmClient = FakeLlmClient(),
+    private val skillRouter: SkillRouter = SkillRouter(),
+    private val dispatcher: CoroutineDispatcher = Dispatchers.Default
 ) {
     private var brainContext = BrainContext()
 
-    suspend fun processEvent(event: BrainEvent): BrainResult {
-        return when (event) {
-            is BrainEvent.UserUtterance -> {
-                brainContext = brainContext.withUpdatedUserMessage(event.text)
-                val intent = llmClient.classifyIntent(
-                    event.text,
-                    brainContext
+    suspend fun handleUserUtterance(
+        text: String,
+        context: BrainContext = brainContext
+    ): BrainResult = withContext(dispatcher) {
+        Log.d(TAG, "Handling user utterance: $text")
+
+        val updatedContext = context.withUpdatedUserMessage(text)
+
+        val parsedIntent = llmClient.classifyIntent(
+            text = text,
+            context = updatedContext
+        )
+        val plan = skillRouter.buildPlan(parsedIntent)
+
+        val result = when (plan) {
+            is ActionPlan.AnswerDirectly -> {
+                val replyText = plan.responseText.takeIf { it.isNotBlank() }
+                    ?: llmClient.generateReply(text, updatedContext)
+                brainContext = updatedContext.withAssistantReply(replyText)
+                BrainResult.DirectReply(
+                    text = replyText,
+                    parsedIntent = parsedIntent,
+                    plan = plan.copy(responseText = replyText)
                 )
-                val result = SkillRouter.route(intent)
-                handleResult(intent, result)
-                result
+            }
+
+            is ActionPlan.ExecuteDeviceActions -> {
+                brainContext = updatedContext.withAssistantReply(plan.summary.orEmpty())
+                BrainResult.ActionRequired(
+                    parsedIntent = parsedIntent,
+                    plan = plan
+                )
+            }
+
+            ActionPlan.NoOp -> {
+                brainContext = updatedContext
+                BrainResult.Ignored(
+                    parsedIntent = parsedIntent,
+                    plan = plan
+                )
             }
         }
+
+        logOutcome(parsedIntent, result)
+        result
     }
 
-    private fun handleResult(intent: ParsedIntent, result: BrainResult) {
+    private fun logOutcome(intent: ParsedIntent, result: BrainResult) {
         when (result) {
             is BrainResult.DirectReply -> {
-                brainContext = brainContext.withAssistantReply(result.text)
-                println("Brain direct reply: ${result.text}")
+                Log.d(
+                    TAG,
+                    "Direct reply intent=${intent.type} confidence=${intent.confidence} text=${result.text}"
+                )
             }
+
             is BrainResult.ActionRequired -> {
-                val summary = when (val plan = result.plan) {
-                    is ActionPlan.ExecuteDeviceActions -> {
-                        "steps=${plan.steps.size} summary=${plan.summary}"
-                    }
-                    is ActionPlan.AnswerDirectly -> {
-                        "answer=${plan.responseText}"
-                    }
-                    ActionPlan.NoOp -> "noop"
-                }
-                val assistantReply = when (val plan = result.plan) {
-                    is ActionPlan.ExecuteDeviceActions -> plan.summary.orEmpty()
-                    is ActionPlan.AnswerDirectly -> plan.responseText
-                    ActionPlan.NoOp -> ""
-                }
-                brainContext = brainContext.withAssistantReply(assistantReply)
-                println("Brain action required intent=${intent.type} confidence=${intent.confidence} $summary")
+                val plan = result.plan
+                Log.d(
+                    TAG,
+                    "Action required intent=${intent.type} steps=${plan.steps.size} summary=${plan.summary}"
+                )
             }
-            BrainResult.Ignored -> {
-                println("Brain ignored intent=${intent.type} confidence=${intent.confidence}")
+
+            is BrainResult.Ignored -> {
+                Log.d(
+                    TAG,
+                    "Ignored intent=${intent.type} confidence=${intent.confidence}"
+                )
             }
         }
     }
-}
-
-sealed class BrainEvent {
-    data class UserUtterance(val text: String) : BrainEvent()
 }

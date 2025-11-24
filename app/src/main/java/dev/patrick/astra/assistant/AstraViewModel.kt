@@ -4,6 +4,10 @@ import android.app.Application
 import android.content.Intent
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import dev.patrick.astra.brains.Brain
+import dev.patrick.astra.brains.BrainResult
+import dev.patrick.astra.brains.SkillRouter
+import dev.patrick.astra.brains.llm.FakeLlmClient
 import dev.patrick.astra.ui.AstraState
 import dev.patrick.astra.ui.Emotion
 import dev.patrick.astra.stt.CloudSttEngineStub
@@ -23,7 +27,7 @@ data class AstraUiState(
 )
 
 /**
- * ViewModel that holds the conversation state and talks to AstraBrain.
+ * ViewModel that holds the conversation state and talks to the brain controller.
  */
 class AstraViewModel(
     application: Application
@@ -45,9 +49,16 @@ class AstraViewModel(
 
     private val context get() = getApplication<Application>()
 
-    private val brain = AstraBrain { spokenText ->
-        speak(spokenText)
-    }
+    private val brain = Brain(
+        llmClient = FakeLlmClient(),
+        skillRouter = SkillRouter()
+    )
+
+    private val brainController = BrainController(
+        brain = brain,
+        overlayUiStateStore = OverlayUiStateStore,
+        scope = viewModelScope
+    )
 
     private var transcriptionEngine: TranscriptionEngine? = null
 
@@ -75,8 +86,6 @@ class AstraViewModel(
     fun sendUserMessage(text: String) {
         if (text.isBlank()) return
 
-        setThinking()
-
         // Add the user message and show thinking state
         _uiState.update { state ->
             state.copy(
@@ -85,16 +94,50 @@ class AstraViewModel(
             )
         }
 
-        // Call the brain on a background coroutine
-        viewModelScope.launch {
-            val reply = brain.handleUserInput(text)
-            _uiState.update { state ->
-                state.copy(
-                    messages = state.messages + reply,
-                    isThinking = false
-                )
+        brainController.submitUserMessage(
+            text = text,
+            onResult = { result ->
+                when (result) {
+                    is BrainResult.DirectReply -> {
+                        val replyMessage = AstraMessage(fromUser = false, text = result.text)
+                        _uiState.update { state ->
+                            state.copy(
+                                messages = state.messages + replyMessage,
+                                isThinking = false
+                            )
+                        }
+                        speak(result.text)
+                    }
+
+                    is BrainResult.ActionRequired -> {
+                        val plan = result.plan
+                        val summary = plan.summary ?: "Executing ${plan.steps.size} step(s)"
+                        val actionMessage = AstraMessage(
+                            fromUser = false,
+                            text = "Plan: $summary (${plan.steps.size} step(s))"
+                        )
+                        _uiState.update { state ->
+                            state.copy(
+                                messages = state.messages + actionMessage,
+                                isThinking = false
+                            )
+                        }
+                    }
+
+                    is BrainResult.Ignored -> {
+                        _uiState.update { state ->
+                            state.copy(isThinking = false)
+                        }
+                    }
+                }
+            },
+            onError = {
+                _uiState.update { state ->
+                    state.copy(isThinking = false)
+                }
+                setError()
             }
-        }
+        )
     }
 
     private fun speak(text: String) {
@@ -110,6 +153,9 @@ class AstraViewModel(
         setListening()
         transcriptionEngine?.startListening(
             onFinalResult = { recognizedText ->
+                _uiState.update { state ->
+                    state.copy(isListening = false)
+                }
                 // When we get a final result, treat it like a user message.
                 sendUserMessage(recognizedText)
             },
@@ -155,13 +201,6 @@ class AstraViewModel(
     private fun setListening() {
         OverlayUiStateStore.set(
             state = AstraState.Listening(intensity = 1f),
-            emotion = Emotion.Focused
-        )
-    }
-
-    private fun setThinking() {
-        OverlayUiStateStore.set(
-            state = AstraState.Thinking(mood = Emotion.Focused),
             emotion = Emotion.Focused
         )
     }
