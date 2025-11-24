@@ -1,5 +1,10 @@
 package dev.patrick.astra.ui
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
@@ -10,23 +15,27 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.wrapContentSize
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -53,6 +62,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -65,7 +75,6 @@ import kotlin.math.min
 import kotlin.math.roundToInt
 import kotlin.math.sin
 import kotlin.random.Random
-import kotlin.collections.buildList
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -75,9 +84,12 @@ import kotlinx.coroutines.launch
 const val ORB_BASE_DP: Float = 96f
 const val ORB_VISUAL_CONTAINER_SCALE: Float = 1.1f // tiny canvas pad to avoid aura/glow clipping at edges
 
+enum class OverlaySide { Left, Right }
+private enum class OrbInteractionMode { Idle, Dragging, HudOpen }
+
 // Summary:
 // - Hitbox == 96dp core (Box.size(baseSize)); canvas has only 10% padding for glow.
-// - Drag uses detectDragGestures; clicks go through combinedClickable gated by isDragging.
+// - Drag uses detectDragGestures; taps/long-press handled manually to avoid HUD glitches.
 // - Long press toggles didLongPress so taps never fire afterwards.
 
 private const val CORE_RADIUS_RATIO = 0.38f // core spans ~76% of the 96dp diameter (meets 30-40% radius spec)
@@ -109,7 +121,8 @@ fun OverlayBubble(
     onRequestVoice: () -> Unit,
     onRequestTranslate: () -> Unit,
     onRequestSettings: () -> Unit,
-    onRequestHide: (() -> Unit)? = null
+    onRequestHide: (() -> Unit)? = null,
+    overlaySide: OverlaySide
 ) {
     val activeEmotion = when (state) {
         is AstraState.Thinking -> state.mood
@@ -124,7 +137,6 @@ fun OverlayBubble(
     var dragMagnitude by remember { mutableStateOf(0f) }
     var totalDrag by remember { mutableStateOf(Offset.Zero) }
     var didLongPress by remember { mutableStateOf(false) }
-    var lastTapPosition by remember { mutableStateOf<Offset?>(null) }
     var gazeTarget by remember { mutableStateOf(Offset.Zero) }
     var hudVisible by remember { mutableStateOf(false) }
 
@@ -139,6 +151,19 @@ fun OverlayBubble(
     val requestHideCb by rememberUpdatedState(onRequestHide)
     val interactionSource = remember { MutableInteractionSource() }
     val isPressedByClick by interactionSource.collectIsPressedAsState()
+
+    var interactionMode by remember { mutableStateOf(OrbInteractionMode.Idle) }
+    fun closeHud(resetInteractionState: Boolean = true) {
+        hudVisible = false
+        didLongPress = false
+        if (resetInteractionState) {
+            interactionMode = OrbInteractionMode.Idle
+            isDragging = false
+            dragMagnitude = 0f
+            totalDrag = Offset.Zero
+            gazeTarget = Offset.Zero
+        }
+    }
 
     var previousEmotionPalette by remember { mutableStateOf(paletteTarget) }
     var targetEmotionPalette by remember { mutableStateOf(paletteTarget) }
@@ -261,7 +286,7 @@ fun OverlayBubble(
         }
     }
 
-    val isPressing = isDragging || isPressedByClick
+    val isPressing = isDragging || isPressedByClick || interactionMode == OrbInteractionMode.HudOpen
 
     val auraAlphaTarget = if (isPressing) {
         0.38f + energy.energy * 0.32f
@@ -331,93 +356,81 @@ fun OverlayBubble(
     val baseSize = ORB_BASE_DP.dp
     val containerSize = baseSize * ORB_VISUAL_CONTAINER_SCALE
     val baseSizePx = with(LocalDensity.current) { baseSize.toPx() }
-    val dragModifier = if (hudVisible) {
-        Modifier
-    } else {
-        Modifier.pointerInput(Unit) {
-            detectDragGestures(
-                onDragStart = {
-                    isDragging = true
-                    hudVisible = false
-                    didLongPress = false
-                    dragMagnitude = 0f
-                    totalDrag = Offset.Zero
-                    gazeTarget = Offset.Zero
-                },
-                onDrag = { change, dragAmount ->
-                    totalDrag += dragAmount
-                    val (dx, dy) = dragAmount
-                    dragMagnitude = hypot(totalDrag.x, totalDrag.y)
-                    val magnitude = hypot(dx, dy)
-                    if (magnitude > 0f) {
-                        val normalized = Offset(dx / magnitude, dy / magnitude)
-                        gazeTarget = normalized * 0.12f
-                    }
-
-                    change.consume()
-                    dragCb(dx, dy)
-                },
-                onDragEnd = {
-                    isDragging = false
-                    hudVisible = false
-                    didLongPress = false
-                    dragMagnitude = 0f
-                    totalDrag = Offset.Zero
-                    gazeTarget = Offset.Zero
-                    dragEndCb()
-                },
-                onDragCancel = {
-                    isDragging = false
-                    hudVisible = false
-                    didLongPress = false
-                    dragMagnitude = 0f
-                    totalDrag = Offset.Zero
-                    gazeTarget = Offset.Zero
-                    dragEndCb()
-                }
-            )
-        }
-    }
-
-    val gazePointerModifier = if (hudVisible) {
-        Modifier
-    } else {
-        Modifier.pointerInput(baseSizePx) {
-            awaitEachGesture {
-                val down = awaitFirstDown()
-                lastTapPosition = down.position
+    val dragModifier = Modifier.pointerInput(hudVisible) {
+        detectDragGestures(
+            onDragStart = { offset ->
+                if (hudVisible) return@detectDragGestures
+                interactionMode = OrbInteractionMode.Dragging
+                isDragging = true
+                hudVisible = false
+                didLongPress = false
+                dragMagnitude = 0f
+                totalDrag = Offset.Zero
                 val center = Offset(baseSizePx / 2f, baseSizePx / 2f)
-                val delta = down.position - center
+                val delta = offset - center
                 val distance = delta.getDistance()
                 gazeTarget = if (distance > 0f) {
                     Offset(delta.x / distance, delta.y / distance) * 0.12f
                 } else {
                     Offset.Zero
                 }
+            },
+            onDrag = { change, dragAmount ->
+                if (interactionMode != OrbInteractionMode.Dragging) return@detectDragGestures
+                totalDrag += dragAmount
+                val (dx, dy) = dragAmount
+                dragMagnitude = hypot(totalDrag.x, totalDrag.y)
+                val magnitude = hypot(dx, dy)
+                if (magnitude > 0f) {
+                    val normalized = Offset(dx / magnitude, dy / magnitude)
+                    gazeTarget = normalized * 0.12f
+                }
+
+                change.consume()
+                dragCb(dx, dy)
+            },
+            onDragEnd = {
+                if (interactionMode != OrbInteractionMode.Dragging) return@detectDragGestures
+                interactionMode = OrbInteractionMode.Idle
+                isDragging = false
+                dragMagnitude = 0f
+                totalDrag = Offset.Zero
+                gazeTarget = Offset.Zero
+                dragEndCb()
+            },
+            onDragCancel = {
+                if (interactionMode != OrbInteractionMode.Dragging) return@detectDragGestures
+                interactionMode = OrbInteractionMode.Idle
+                isDragging = false
+                dragMagnitude = 0f
+                totalDrag = Offset.Zero
+                gazeTarget = Offset.Zero
+                dragEndCb()
             }
-        }
+        )
     }
 
-    val clickModifier = if (hudVisible) {
-        Modifier
-    } else {
-        Modifier.combinedClickable(
-            interactionSource = interactionSource,
-            indication = null,
-            enabled = !isDragging,
-            onClick = {
-                if (didLongPress) {
-                    didLongPress = false
-                    return@combinedClickable
+    val tapAndLongPressModifier = Modifier.pointerInput(hudVisible) {
+        detectTapGestures(
+            onTap = {
+                if (!hudVisible && interactionMode == OrbInteractionMode.Idle) {
+                    tapCb()
                 }
-                tapCb()
             },
-            onLongClick = {
-                if (!isDragging) {
-                    didLongPress = true
-                    hudVisible = true
-                    longPressCb()
+            onLongPress = { offset ->
+                if (hudVisible) return@detectTapGestures
+                interactionMode = OrbInteractionMode.HudOpen
+                hudVisible = true
+                didLongPress = true
+                val center = Offset(baseSizePx / 2f, baseSizePx / 2f)
+                val delta = offset - center
+                val distance = delta.getDistance()
+                gazeTarget = if (distance > 0f) {
+                    Offset(delta.x / distance, delta.y / distance) * 0.12f
+                } else {
+                    Offset.Zero
                 }
+                longPressCb()
             }
         )
     }
@@ -428,25 +441,15 @@ fun OverlayBubble(
         label = "gaze_offset"
     )
 
-    LaunchedEffect(lastTapPosition) {
-        val tap = lastTapPosition ?: return@LaunchedEffect
-        val center = Offset(baseSizePx / 2f, baseSizePx / 2f)
-        val delta = tap - center
-        val distance = delta.getDistance()
-        gazeTarget = if (distance > 0f) {
-            Offset(delta.x / distance, delta.y / distance) * 0.12f
-        } else {
-            Offset.Zero
-        }
-    }
-
     LaunchedEffect(isPressing) {
         pressChangeCb(isPressing)
     }
 
     LaunchedEffect(isInDismissZone) {
         if (isInDismissZone) {
-            hudVisible = false
+            // Do not reset drag interaction state when entering dismiss zone; otherwise onDragEnd
+            // gets skipped and the service never sees the dismiss gesture.
+            closeHud(resetInteractionState = false)
         }
     }
 
@@ -517,94 +520,100 @@ fun OverlayBubble(
 
     Box(
         modifier = modifier
-            .size(containerSize)
+            .wrapContentSize()
             .onGloballyPositioned {
                 onLayoutChanged?.invoke(it.size.width, it.size.height)
             },
         contentAlignment = Alignment.Center
     ) {
-        Canvas(
-            modifier = Modifier
-                .size(containerSize)
+        val spacerWidth = 12.dp
+        Row(
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            drawOrb(
-                palette = paletteWithDismiss,
-                energy = energy,
-                auraAlpha = auraAlphaScaled,
-                combinedScaleX = combinedScaleX,
-                combinedScaleY = combinedScaleY,
-                eyeAlpha = eyeAlpha,
-                eyeScaleY = eyeScaleY,
-                eyeGazeX = eyeGazeX,
-                eyeGazeY = eyeGazeY,
-                thinkingPhase = thinkingPhase,
-                state = state,
-                errorShake = errorShake,
-                baseSizePx = baseSizePx,
-                breathingScale = breathingScale,
-                auraScale = auraScale,
-                squashX = squashXWithWobble,
-                squashY = squashYWithWobble,
-                tiltDegrees = finalTilt,
-                eyeSeparationFactor = expressionEyeSeparation,
-                eyeTiltDegrees = expressionEyeTilt,
-                mouthCurve = expressionMouthCurve,
-                dismissHighlight = dismissHighlight,
-                dismissOverlayColor = dismissColor
-            )
-        }
+            if (hudVisible && overlaySide == OverlaySide.Right) {
+                OrbQuickActionsHud(
+                    visible = hudVisible,
+                    onDismiss = { closeHud() },
+                    onAction = { action ->
+                        when (action) {
+                            OrbHudActionType.Ask -> requestVoiceCb()
+                            OrbHudActionType.Translate -> requestTranslateCb()
+                            OrbHudActionType.Settings -> requestSettingsCb()
+                            OrbHudActionType.Hide -> requestHideCb?.invoke()
+                        }
+                    }
+                )
+                Spacer(modifier = Modifier.width(spacerWidth))
+            }
 
-        val quickActions = remember(onRequestVoice, onRequestTranslate, onRequestSettings, onRequestHide) {
-            buildList {
-                add(
-                    OrbHudAction(
-                        label = "Ask",
-                        icon = "A",
-                        onClick = { requestVoiceCb() }
-                    )
-                )
-                add(
-                    OrbHudAction(
-                        label = "Translate",
-                        icon = "T",
-                        onClick = { requestTranslateCb() }
-                    )
-                )
-                add(
-                    OrbHudAction(
-                        label = "Settings",
-                        icon = "S",
-                        onClick = { requestSettingsCb() }
-                    )
-                )
-                requestHideCb?.let {
-                    add(
-                        OrbHudAction(
-                            label = "Hide",
-                            icon = "X",
-                            onClick = it
-                        )
+            Box(
+                modifier = Modifier
+                    .size(baseSize) // hitbox matches the ~96dp orb instead of the larger glow container
+                    .then(dragModifier)
+                    .then(tapAndLongPressModifier),
+                contentAlignment = Alignment.Center
+            ) {
+                Canvas(
+                    modifier = Modifier
+                        .size(containerSize)
+                ) {
+                    drawOrb(
+                        palette = paletteWithDismiss,
+                        energy = energy,
+                        auraAlpha = auraAlphaScaled,
+                        combinedScaleX = combinedScaleX,
+                        combinedScaleY = combinedScaleY,
+                        eyeAlpha = eyeAlpha,
+                        eyeScaleY = eyeScaleY,
+                        eyeGazeX = eyeGazeX,
+                        eyeGazeY = eyeGazeY,
+                        thinkingPhase = thinkingPhase,
+                        state = state,
+                        errorShake = errorShake,
+                        baseSizePx = baseSizePx,
+                        breathingScale = breathingScale,
+                        auraScale = auraScale,
+                        squashX = squashXWithWobble,
+                        squashY = squashYWithWobble,
+                        tiltDegrees = finalTilt,
+                        eyeSeparationFactor = expressionEyeSeparation,
+                        eyeTiltDegrees = expressionEyeTilt,
+                        mouthCurve = expressionMouthCurve,
+                        dismissHighlight = dismissHighlight,
+                        dismissOverlayColor = dismissColor
                     )
                 }
             }
+
+            if (hudVisible && overlaySide == OverlaySide.Left) {
+                Spacer(modifier = Modifier.width(spacerWidth))
+                OrbQuickActionsHud(
+                    visible = hudVisible,
+                    onDismiss = { closeHud() },
+                    onAction = { action ->
+                        when (action) {
+                            OrbHudActionType.Ask -> requestVoiceCb()
+                            OrbHudActionType.Translate -> requestTranslateCb()
+                            OrbHudActionType.Settings -> requestSettingsCb()
+                            OrbHudActionType.Hide -> requestHideCb?.invoke()
+                        }
+                    }
+                )
+            }
         }
 
-        OrbQuickActionsHud(
-            visible = hudVisible,
-            actions = quickActions,
-            onDismiss = {
-                hudVisible = false
-                didLongPress = false
-            }
-        )
-
-        Box(
-            modifier = Modifier
-                .size(baseSize) // hitbox matches the ~96dp orb instead of the larger glow container
-                .then(gazePointerModifier)
-                .then(dragModifier)
-                .then(clickModifier)
-        )
+        if (hudVisible) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) {
+                        closeHud()
+                    }
+            )
+        }
     }
 }
 
@@ -855,14 +864,16 @@ private fun lerpFloat(start: Float, end: Float, t: Float): Float {
 private data class OrbHudAction(
     val label: String,
     val icon: String,
-    val onClick: () -> Unit
+    val type: OrbHudActionType
 )
+
+private enum class OrbHudActionType { Ask, Translate, Settings, Hide }
 
 @Composable
 private fun OrbQuickActionsHud(
     visible: Boolean,
-    actions: List<OrbHudAction>,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    onAction: (OrbHudActionType) -> Unit
 ) {
     val alpha by animateFloatAsState(
         targetValue = if (visible) 1f else 0f,
@@ -871,83 +882,111 @@ private fun OrbQuickActionsHud(
     )
     val scale by animateFloatAsState(
         targetValue = if (visible) 1f else 0.9f,
-        animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
+        animationSpec = tween(durationMillis = 200, easing = FastOutSlowInEasing),
         label = "hud_scale"
     )
 
-    if (alpha <= 0.01f || actions.isEmpty()) {
-        return
-    }
+    if (!visible && alpha <= 0.01f) return
 
-    val dismissInteraction = remember { MutableInteractionSource() }
-    val alignments = remember {
+    val actions = remember {
         listOf(
-            Alignment.TopStart,
-            Alignment.TopEnd,
-            Alignment.BottomStart,
-            Alignment.BottomEnd
+            OrbHudAction(label = "Ask", icon = "A", type = OrbHudActionType.Ask),
+            OrbHudAction(label = "Translate", icon = "T", type = OrbHudActionType.Translate),
+            OrbHudAction(label = "Settings", icon = "S", type = OrbHudActionType.Settings),
+            OrbHudAction(label = "Hide", icon = "X", type = OrbHudActionType.Hide)
         )
     }
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .clickable(
-                enabled = visible,
-                indication = null,
-                interactionSource = dismissInteraction
-            ) {
-                onDismiss()
-            }
-            .padding(6.dp),
-        contentAlignment = Alignment.Center
+    AnimatedVisibility(
+        visible = visible || alpha > 0.01f,
+        enter = fadeIn(tween(150)) + scaleIn(tween(180)),
+        exit = fadeOut(tween(120)) + scaleOut(tween(150))
     ) {
-        actions.take(alignments.size).forEachIndexed { index, action ->
-            val alignment = alignments[index]
-            OrbHudActionChip(
-                action = action,
-                alpha = alpha,
-                scale = scale,
-                onDismiss = onDismiss,
-                modifier = Modifier.align(alignment)
-            )
+        OrbHudPill(
+            actions = actions,
+            alpha = alpha,
+            scale = scale,
+            onDismiss = onDismiss,
+            onAction = onAction
+        )
+    }
+}
+
+@Composable
+private fun OrbHudPill(
+    actions: List<OrbHudAction>,
+    alpha: Float,
+    scale: Float,
+    onDismiss: () -> Unit,
+    onAction: (OrbHudActionType) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    if (actions.isEmpty()) return
+
+        Surface(
+            modifier = modifier
+                .wrapContentSize()
+                .graphicsLayer {
+                    this.alpha = alpha
+                    scaleX = scale
+                    scaleY = scale
+                },
+        shape = RoundedCornerShape(999.dp),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
+        tonalElevation = 8.dp,
+        shadowElevation = 10.dp
+    ) {
+        Row(
+            modifier = Modifier
+                .padding(horizontal = 10.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            actions.forEachIndexed { index, action ->
+                OrbHudSegment(
+                    action = action,
+                    onAction = onAction,
+                    onDismiss = onDismiss,
+                    modifier = Modifier
+                        .weight(1f)
+                )
+
+                if (index != actions.lastIndex) {
+                    Spacer(
+                        modifier = Modifier
+                            .width(1.dp)
+                            .height(28.dp)
+                            .graphicsLayer { this.alpha = 0.18f }
+                            .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
+                    )
+                }
+            }
         }
     }
 }
 
 @Composable
-private fun OrbHudActionChip(
+private fun OrbHudSegment(
     action: OrbHudAction,
-    alpha: Float,
-    scale: Float,
+    onAction: (OrbHudActionType) -> Unit,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val actionInteraction = remember { MutableInteractionSource() }
     Column(
-        modifier = modifier
-            .width(48.dp)
-            .graphicsLayer {
-                this.alpha = alpha
-                scaleX = scale
-                scaleY = scale
-            },
+        modifier = modifier.widthIn(min = 56.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Surface(
             modifier = Modifier
-                .size(44.dp)
+                .size(42.dp)
                 .clickable(
-                    interactionSource = actionInteraction,
-                    indication = null
+                    role = Role.Button
                 ) {
-                    action.onClick()
+                    onAction(action.type)
                     onDismiss()
                 },
-            shape = androidx.compose.foundation.shape.CircleShape,
-            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
-            shadowElevation = 8.dp,
-            tonalElevation = 4.dp
+            shape = RoundedCornerShape(21.dp),
+            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
+            tonalElevation = 2.dp
         ) {
             Box(
                 modifier = Modifier.fillMaxSize(),
@@ -955,7 +994,8 @@ private fun OrbHudActionChip(
             ) {
                 Text(
                     text = action.icon,
-                    fontSize = 18.sp,
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurface,
                     textAlign = TextAlign.Center
                 )
             }

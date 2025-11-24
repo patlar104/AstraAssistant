@@ -32,6 +32,7 @@ import dev.patrick.astra.ui.MainActivity
 import dev.patrick.astra.ui.OverlayBubble
 import dev.patrick.astra.ui.ORB_BASE_DP
 import dev.patrick.astra.ui.ORB_VISUAL_CONTAINER_SCALE
+import dev.patrick.astra.ui.OverlaySide
 import dev.patrick.astra.ui.theme.AstraAssistantTheme
 import kotlin.math.roundToInt
 
@@ -57,10 +58,15 @@ class OverlayService :
     // Drag state for overlay position
     private var lastWindowX: Int = 0
     private var lastWindowY: Int = 0
+    private var lastWindowXF: Float = 0f
+    private var lastWindowYF: Float = 0f
     // Real measured size of the Compose bubble in px
     private var bubbleWidthPx: Int = 0
     private var bubbleHeightPx: Int = 0
     private val inDismissZoneState = mutableStateOf(false)
+    private val overlaySideState = mutableStateOf(OverlaySide.Right)
+    // Tracks whether the current drag sequence ever entered the dismiss zone.
+    private var dragEverInDismissZone: Boolean = false
 
     // ViewModelStoreOwner implementation
     override val viewModelStore: ViewModelStore = ViewModelStore()
@@ -136,6 +142,13 @@ class OverlayService :
 
         lastWindowX = params.x
         lastWindowY = params.y
+        lastWindowXF = params.x.toFloat()
+        lastWindowYF = params.y.toFloat()
+        overlaySideState.value = if (params.x + (fallbackBubbleSizePx / 2) > screenWidth / 2) {
+            OverlaySide.Right
+        } else {
+            OverlaySide.Left
+        }
 
         val wm = windowManager
         val composeView = ComposeView(this).apply {
@@ -171,9 +184,11 @@ class OverlayService :
                             val effectiveW = if (bubbleWidthPx > 0) bubbleWidthPx else fallbackBubbleSizePx
                             val effectiveH = if (bubbleHeightPx > 0) bubbleHeightPx else fallbackBubbleSizePx
 
-                            // Update raw position
-                            layoutParams.x += dx.toInt()
-                            layoutParams.y += dy.toInt()
+                            // Update raw position using float precision to avoid rounding away tiny drags
+                            lastWindowXF += dx
+                            lastWindowYF += dy
+                            layoutParams.x = lastWindowXF.roundToInt()
+                            layoutParams.y = lastWindowYF.roundToInt()
 
                             // Clamp the bubble so it can't fully leave the screen; coerceAtLeast prevents empty ranges.
                             val minX = bubbleMarginPxInner
@@ -188,12 +203,20 @@ class OverlayService :
 
                             lastWindowX = layoutParams.x
                             lastWindowY = layoutParams.y
+                            lastWindowXF = layoutParams.x.toFloat()
+                            lastWindowYF = layoutParams.y.toFloat()
 
                             val centerX = layoutParams.x + effectiveW / 2
                             val centerY = layoutParams.y + effectiveH / 2
                             val inHorizontalBand = kotlin.math.abs(centerX - dismissCenterX) <= dismissHalfWidth
                             val inVerticalBand = centerY in dismissTop..dismissBottom
                             val inDismissZone = inHorizontalBand && inVerticalBand
+
+                            if (inDismissZone) {
+                                // Mark that this drag sequence has entered the dismiss zone at least once.
+                                dragEverInDismissZone = true
+                            }
+
                             if (inDismissZoneState.value != inDismissZone) {
                                 if (BuildConfig.DEBUG) {
                                     Log.d(
@@ -205,14 +228,24 @@ class OverlayService :
                             }
 
                             wm?.updateViewLayout(this@apply, layoutParams)
+                            overlaySideState.value = if (layoutParams.x + effectiveW / 2 > screenWidth / 2) {
+                                OverlaySide.Right
+                            } else {
+                                OverlaySide.Left
+                            }
                         },
                         onDragEnd = {
                             val layoutParams = params
 
                             val effectiveW = if (bubbleWidthPx > 0) bubbleWidthPx else fallbackBubbleSizePx
                             val effectiveH = if (bubbleHeightPx > 0) bubbleHeightPx else fallbackBubbleSizePx
-                            val shouldDismiss = inDismissZoneState.value
+                            // Decide dismissal based on whether THIS drag ever entered the zone, not just the last frame.
+                            val shouldDismiss = dragEverInDismissZone
+
+                            // Reset per-drag flags for the next interaction.
+                            dragEverInDismissZone = false
                             inDismissZoneState.value = false
+
                             if (shouldDismiss) {
                                 dismissOverlay()
                                 return@OverlayBubble
@@ -238,6 +271,14 @@ class OverlayService :
 
                             lastWindowX = layoutParams.x
                             lastWindowY = layoutParams.y
+                            lastWindowXF = layoutParams.x.toFloat()
+                            lastWindowYF = layoutParams.y.toFloat()
+
+                            overlaySideState.value = if (layoutParams.x + effectiveW / 2 > screenWidth / 2) {
+                                OverlaySide.Right
+                            } else {
+                                OverlaySide.Left
+                            }
 
                             wm?.updateViewLayout(this@apply, layoutParams)
                         },
@@ -250,7 +291,8 @@ class OverlayService :
                         onRequestVoice = { requestVoice() },
                         onRequestTranslate = { requestTranslate() },
                         onRequestSettings = { requestSettings() },
-                        onRequestHide = { requestHide() }
+                        onRequestHide = { requestHide() },
+                        overlaySide = overlaySideState.value
                     )
                 }
             }
