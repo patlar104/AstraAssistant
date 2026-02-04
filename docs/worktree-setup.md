@@ -22,7 +22,7 @@ cp .envrc.local.example .envrc.local
 2. Edit `.envrc.local` for your machine (JDK + Android SDK paths). Example:
 
 ```bash
-export JAVA_HOME="$HOME/.sdkman/candidates/java/17.0.11-tem"
+export JAVA_HOME="$(/usr/libexec/java_home -v 21)"
 export ANDROID_SDK_ROOT="$HOME/Library/Android/sdk"
 export ANDROID_HOME="$ANDROID_SDK_ROOT"
 ```
@@ -51,4 +51,4 @@ sdk.dir=/absolute/path/to/Android/sdk
 
 ## JDK
 
-Android Gradle Plugin 8.x expects JDK 17. Make sure Android Studio and CLI use the same JDK path.
+This repo targets JDK 21 (OpenJDK 21.x.x). Make sure Android Studio and CLI use the same JDK path.

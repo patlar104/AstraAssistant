@@ -1,8 +1,8 @@
 # Example overrides for your machine.
 # Copy to .envrc.local and edit paths.
 
-# JDK 17 is recommended for AGP 8.x.
-# export JAVA_HOME="$HOME/.sdkman/candidates/java/17.0.11-tem"
+# JDK 21 is required (OpenJDK 21.x.x).
+# export JAVA_HOME="$(/usr/libexec/java_home -v 21)"
 
 # Android SDK path.
 # export ANDROID_SDK_ROOT="$HOME/Library/Android/sdk"
