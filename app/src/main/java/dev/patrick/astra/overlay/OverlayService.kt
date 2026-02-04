@@ -122,6 +122,7 @@ class OverlayService :
 
         val wm = windowManager
         val composeView = ComposeView(this).apply {
+            contentDescription = OVERLAY_CONTENT_DESC
             setViewCompositionStrategy(
                 ViewCompositionStrategy.DisposeOnDetachedFromWindow
             )
@@ -391,6 +392,7 @@ class OverlayService :
         private const val MOVE_THRESHOLD_PX = 4f
         private const val DISMISS_TAG = "OverlayServiceDismiss"
         private const val OVERLAY_DEBUG_TAG = "OverlayDebug"
+        internal const val OVERLAY_CONTENT_DESC = "AstraOverlay"
         fun canDrawOverlays(context: Context): Boolean {
             return Settings.canDrawOverlays(context)
         }
