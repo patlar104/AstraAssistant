@@ -15,12 +15,12 @@ private const val TAG = "BrainController"
 class BrainController(
     private val brain: Brain,
     private val scope: CoroutineScope
-) {
+) : BrainSubmitter {
 
-    fun submitUserMessage(
+    override fun submitUserMessage(
         text: String,
         onResult: (BrainResult) -> Unit,
-        onError: (Throwable) -> Unit = {}
+        onError: (Throwable) -> Unit
     ) {
         if (text.isBlank()) return
 

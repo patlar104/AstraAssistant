@@ -13,7 +13,12 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34])
 class BrainControllerTest {
 
     @Test
@@ -23,7 +28,11 @@ class BrainControllerTest {
         val controller = BrainController(brain, this)
         var resultCalled = false
 
-        controller.submitUserMessage("   ", onResult = { resultCalled = true })
+        controller.submitUserMessage(
+            "   ",
+            onResult = { resultCalled = true },
+            onError = {}
+        )
 
         assertFalse(resultCalled)
         assertEquals(0, llm.classifyCalls)
@@ -36,7 +45,11 @@ class BrainControllerTest {
         val controller = BrainController(brain, this)
         val resultDeferred = CompletableDeferred<BrainResult>()
 
-        controller.submitUserMessage("Hello", onResult = { resultDeferred.complete(it) })
+        controller.submitUserMessage(
+            "Hello",
+            onResult = { resultDeferred.complete(it) },
+            onError = {}
+        )
 
         val result = resultDeferred.await()
         assertTrue(result is BrainResult.DirectReply)

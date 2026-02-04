@@ -64,6 +64,7 @@ import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalViewConfiguration
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.IntSize
@@ -93,6 +94,9 @@ import kotlin.random.Random
 
 const val ORB_BASE_DP: Float = 96f
 const val ORB_VISUAL_CONTAINER_SCALE: Float = 1.1f
+internal const val OVERLAY_BUBBLE_TAG = "overlay_bubble"
+internal const val OVERLAY_HUD_TAG = "overlay_hud"
+internal const val OVERLAY_HUD_ACTION_PREFIX = "overlay_hud_action_"
 
 enum class OverlaySide { Left, Right }
 private enum class OrbInteractionMode { Idle, Dragging, HudOpen }
@@ -548,7 +552,8 @@ fun OverlayBubble(
             Box(
                 modifier = Modifier
                     .size(containerSize)
-                    .then(gestureModifier),
+                    .then(gestureModifier)
+                    .testTag(OVERLAY_BUBBLE_TAG),
                 contentAlignment = Alignment.Center
             ) {
                 Canvas(
@@ -926,6 +931,7 @@ private fun OrbHudPill(
     Surface(
         modifier = modifier
             .wrapContentSize()
+            .testTag(OVERLAY_HUD_TAG)
             .graphicsLayer {
                 this.alpha = alpha
                 scaleX = scale
@@ -978,6 +984,7 @@ private fun OrbHudSegment(
         Surface(
             modifier = Modifier
                 .size(42.dp)
+                .testTag("${OVERLAY_HUD_ACTION_PREFIX}${action.type.name.lowercase()}")
                 .clickable(
                     role = Role.Button
                 ) {

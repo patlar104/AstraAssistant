@@ -1,6 +1,7 @@
 package dev.patrick.astra.assistant
 
 import android.app.Application
+import android.content.Context
 import android.content.Intent
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -28,8 +29,11 @@ data class AstraUiState(
     val isListening: Boolean = false
 )
 
-class AstraViewModel(
-    application: Application
+class AstraViewModel @JvmOverloads constructor(
+    application: Application,
+    private val brainSubmitterOverride: BrainSubmitter? = null,
+    private val transcriptionEngineFactory: ((Context, SttBackend) -> TranscriptionEngine)? = null,
+    private val ttsStarterOverride: ((Context, String) -> Unit)? = null
 ) : AndroidViewModel(application) {
 
     private val _uiState = MutableStateFlow(
@@ -54,10 +58,28 @@ class AstraViewModel(
         skillRouter = SkillRouter()
     )
 
-    private val brainController = BrainController(
-        brain = brain,
-        scope = viewModelScope
-    )
+    private val brainSubmitter: BrainSubmitter =
+        brainSubmitterOverride ?: BrainController(
+            brain = brain,
+            scope = viewModelScope
+        )
+
+    private val engineFactory: (Context, SttBackend) -> TranscriptionEngine =
+        transcriptionEngineFactory ?: { ctx, backend ->
+            when (backend) {
+                SttBackend.SYSTEM -> SystemSpeechEngine(ctx)
+                SttBackend.LOCAL_WHISPER -> LocalWhisperEngineStub()
+                SttBackend.CLOUD_STT -> CloudSttEngineStub()
+            }
+        }
+
+    private val ttsStarter: (Context, String) -> Unit =
+        ttsStarterOverride ?: { ctx, text ->
+            val intent = Intent(ctx, TtsService::class.java).apply {
+                putExtra(TtsService.EXTRA_TEXT, text)
+            }
+            ctx.startService(intent)
+        }
 
     private var transcriptionEngine: TranscriptionEngine? = null
 
@@ -70,11 +92,7 @@ class AstraViewModel(
     private fun ensureTranscriptionEngine() {
         if (transcriptionEngine != null) return
 
-        transcriptionEngine = when (currentSttBackend) {
-            SttBackend.SYSTEM -> SystemSpeechEngine(context)
-            SttBackend.LOCAL_WHISPER -> LocalWhisperEngineStub()
-            SttBackend.CLOUD_STT -> CloudSttEngineStub()
-        }
+        transcriptionEngine = engineFactory(context, currentSttBackend)
     }
 
     fun sendUserMessage(text: String) {
@@ -91,7 +109,7 @@ class AstraViewModel(
             emotion = Emotion.Focused
         )
 
-        brainController.submitUserMessage(
+        brainSubmitter.submitUserMessage(
             text = text,
             onResult = { result ->
                 when (result) {
@@ -151,10 +169,7 @@ class AstraViewModel(
 
     private fun speak(text: String) {
         setSpeaking()
-        val intent = Intent(context, TtsService::class.java).apply {
-            putExtra(TtsService.EXTRA_TEXT, text)
-        }
-        context.startService(intent)
+        ttsStarter(context, text)
     }
 
     fun startVoiceInput() {
