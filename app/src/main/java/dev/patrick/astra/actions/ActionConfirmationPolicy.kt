@@ -27,13 +27,33 @@ class ActionConfirmationPolicy(
         return when (step) {
             is DeviceActionStep.SystemControl -> KEY_SKIP_SYSTEM_CONTROL
             is DeviceActionStep.SendMessage -> KEY_SKIP_SEND_MESSAGE
+            is DeviceActionStep.TapByText -> if (isRiskyUiLabel(step.text)) KEY_SKIP_RISKY_UI_ACTION else null
+            is DeviceActionStep.TapById -> if (isRiskyUiLabel(step.resId)) KEY_SKIP_RISKY_UI_ACTION else null
             else -> null
         }
+    }
+
+    private fun isRiskyUiLabel(label: String?): Boolean {
+        if (label.isNullOrBlank()) return false
+        val normalized = label.lowercase()
+        return RISKY_UI_KEYWORDS.any { keyword -> normalized.contains(keyword) }
     }
 
     companion object {
         private const val PREFS_NAME = "action_confirmation"
         private const val KEY_SKIP_SYSTEM_CONTROL = "skip_confirm_system_control"
         private const val KEY_SKIP_SEND_MESSAGE = "skip_confirm_send_message"
+        private const val KEY_SKIP_RISKY_UI_ACTION = "skip_confirm_risky_ui_action"
+        private val RISKY_UI_KEYWORDS = listOf(
+            "send",
+            "delete",
+            "remove",
+            "erase",
+            "clear",
+            "buy",
+            "purchase",
+            "pay",
+            "confirm"
+        )
     }
 }

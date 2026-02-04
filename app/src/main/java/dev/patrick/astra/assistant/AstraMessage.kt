@@ -5,5 +5,6 @@ package dev.patrick.astra.assistant
  */
 data class AstraMessage(
     val fromUser: Boolean,
-    val text: String
+    val text: String,
+    val timestamp: Long = System.currentTimeMillis()
 )

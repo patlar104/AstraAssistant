@@ -35,6 +35,12 @@ class AccessibilityActionExecutor(
             is DeviceActionStep.ShowText -> showText(step)
             is DeviceActionStep.SystemControl -> systemControl(step)
             is DeviceActionStep.NavigateToSettings -> openSettings(step)
+            is DeviceActionStep.TapByText -> unsupported("automation_tap_text")
+            is DeviceActionStep.TapById -> unsupported("automation_tap_id")
+            is DeviceActionStep.Scroll -> unsupported("automation_scroll")
+            DeviceActionStep.NavigateBack -> unsupported("automation_nav_back")
+            DeviceActionStep.NavigateHome -> unsupported("automation_nav_home")
+            DeviceActionStep.NavigateRecents -> unsupported("automation_nav_recents")
         }
     }
 

@@ -37,8 +37,8 @@ class TtsService : Service(), TextToSpeech.OnInitListener {
     }
 
     override fun onInit(status: Int) {
+        cancelInitTimeout()
         if (status == TextToSpeech.SUCCESS) {
-            cancelInitTimeout()
             tts?.language = Locale.US
             tts?.setOnUtteranceProgressListener(
                 object : UtteranceProgressListener() {
@@ -71,6 +71,12 @@ class TtsService : Service(), TextToSpeech.OnInitListener {
                 val msg = pendingQueue.removeFirst()
                 speakInternal(msg)
             }
+        } else {
+            DiagnosticsLog.e(TAG, "TTS initialization failed with status=$status")
+            pendingQueue.clear()
+            isReady = false
+            AssistantStateStore.dispatch(AssistantEvent.SpeakingStopped)
+            AssistantStateStore.dispatch(AssistantEvent.Error(reason = "tts_init_failed_$status"))
         }
     }
 

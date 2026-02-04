@@ -36,6 +36,24 @@ sealed class DeviceActionStep {
         val text: String
     ) : DeviceActionStep()
 
+    data class TapByText(
+        val text: String
+    ) : DeviceActionStep()
+
+    data class TapById(
+        val resId: String
+    ) : DeviceActionStep()
+
+    data class Scroll(
+        val direction: ScrollDirection
+    ) : DeviceActionStep()
+
+    data object NavigateBack : DeviceActionStep()
+
+    data object NavigateHome : DeviceActionStep()
+
+    data object NavigateRecents : DeviceActionStep()
+
     data class NavigateToSettings(
         val sectionHint: String
     ) : DeviceActionStep()
@@ -52,4 +70,9 @@ enum class SystemControlType {
     TOGGLE_DND,
     ADJUST_BRIGHTNESS,
     ADJUST_VOLUME
+}
+
+enum class ScrollDirection {
+    FORWARD,
+    BACKWARD
 }

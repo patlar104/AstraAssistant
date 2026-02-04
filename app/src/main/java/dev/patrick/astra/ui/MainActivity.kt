@@ -451,6 +451,16 @@ private fun HealthStatusRow(
             text = "Accessibility service: ${if (healthState.accessibilityEnabled) "Enabled" else "Disabled"}",
             style = MaterialTheme.typography.bodySmall
         )
+        Text(
+            text = "Automation available: ${if (healthState.automationAvailable) "Yes" else "No"}",
+            style = MaterialTheme.typography.bodySmall
+        )
+        healthState.automationError?.let { error ->
+            Text(
+                text = "Automation error: $error",
+                style = MaterialTheme.typography.bodySmall
+            )
+        }
         Spacer(modifier = Modifier.height(8.dp))
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -588,7 +598,10 @@ fun AstraHomePreview() {
                 overlayPermissionGranted = true,
                 voiceAvailable = true,
                 voiceError = null,
-                accessibilityEnabled = false
+                accessibilityEnabled = false,
+                accessibilityServiceReady = false,
+                automationAvailable = false,
+                automationError = null
             ),
             diagnosticsEntries = emptyList(),
             inputText = "",

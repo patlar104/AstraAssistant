@@ -4,6 +4,7 @@ import dev.patrick.astra.brains.intent.ActionPlan
 import dev.patrick.astra.brains.intent.DeviceActionStep
 import dev.patrick.astra.brains.intent.IntentType
 import dev.patrick.astra.brains.intent.ParsedIntent
+import dev.patrick.astra.brains.intent.ScrollDirection
 import dev.patrick.astra.brains.intent.SystemControlType
 
 /**
@@ -88,6 +89,32 @@ object ActionInterpreter {
 
     private fun buildControlPlan(intent: ParsedIntent): ActionPlan {
         val controlKey = intent.arguments["control"]?.lowercase() ?: return ActionPlan.NoOp
+
+        if ("back" in controlKey) {
+            return ActionPlan.ExecuteDeviceActions(
+                steps = listOf(DeviceActionStep.NavigateBack),
+                summary = "Navigate back"
+            )
+        }
+        if ("home" in controlKey) {
+            return ActionPlan.ExecuteDeviceActions(
+                steps = listOf(DeviceActionStep.NavigateHome),
+                summary = "Go home"
+            )
+        }
+        if ("recents" in controlKey || "overview" in controlKey) {
+            return ActionPlan.ExecuteDeviceActions(
+                steps = listOf(DeviceActionStep.NavigateRecents),
+                summary = "Open recents"
+            )
+        }
+        if ("scroll" in controlKey) {
+            val direction = if ("up" in controlKey) ScrollDirection.BACKWARD else ScrollDirection.FORWARD
+            return ActionPlan.ExecuteDeviceActions(
+                steps = listOf(DeviceActionStep.Scroll(direction)),
+                summary = "Scroll ${direction.name.lowercase()}"
+            )
+        }
 
         val controlType = when {
             "wifi" in controlKey -> SystemControlType.TOGGLE_WIFI

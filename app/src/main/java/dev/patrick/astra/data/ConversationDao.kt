@@ -13,8 +13,8 @@ interface ConversationDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAll(entities: List<MessageEntity>)
 
-    @Query("SELECT * FROM messages ORDER BY timestamp DESC LIMIT :limit")
-    suspend fun listRecent(limit: Int): List<MessageEntity>
+    @Query("SELECT * FROM messages WHERE sessionId = :sessionId ORDER BY timestamp DESC LIMIT :limit")
+    suspend fun listRecentForSession(sessionId: Long, limit: Int): List<MessageEntity>
 
     @Query("DELETE FROM messages")
     suspend fun clear()

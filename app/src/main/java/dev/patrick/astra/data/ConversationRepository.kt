@@ -6,12 +6,13 @@ import dev.patrick.astra.brains.memory.ConversationMemory
 class ConversationRepository(
     private val dao: ConversationDao
 ) {
-    suspend fun loadRecent(limit: Int): List<AstraMessage> {
-        val entities = dao.listRecent(limit)
+    suspend fun loadRecent(sessionId: Long, limit: Int): List<AstraMessage> {
+        val entities = dao.listRecentForSession(sessionId, limit)
         return entities.asReversed().map { entity ->
             AstraMessage(
                 fromUser = entity.role == MessageRole.USER,
-                text = entity.text
+                text = entity.text,
+                timestamp = entity.timestamp
             )
         }
     }
@@ -44,7 +45,7 @@ class ConversationRepository(
         return MessageEntity(
             role = if (fromUser) MessageRole.USER else MessageRole.ASSISTANT,
             text = text,
-            timestamp = System.currentTimeMillis(),
+            timestamp = timestamp,
             sessionId = sessionId
         )
     }

@@ -33,6 +33,11 @@ class FakeLlmClient : LlmClient {
         rawText: String
     ): ParsedIntent {
         val (type, isRuleHit) = when {
+            normalizedInput.contains("back") ||
+                normalizedInput.contains("home") ||
+                normalizedInput.contains("recents") ||
+                normalizedInput.contains("overview") ||
+                normalizedInput.contains("scroll") -> IntentType.CONTROL_DEVICE to true
             normalizedInput.contains("open") || normalizedInput.contains("launch") -> IntentType.OPEN_APP to true
             normalizedInput.contains("translate") -> IntentType.TRANSLATE_TEXT to true
             normalizedInput.contains("message") || normalizedInput.contains("text") -> IntentType.SEND_MESSAGE to true
@@ -47,6 +52,7 @@ class FakeLlmClient : LlmClient {
             IntentType.SEND_MESSAGE -> mapOf("text" to rawText)
             IntentType.ASK_QUESTION -> mapOf("question" to rawText)
             IntentType.SMALL_TALK -> mapOf("text" to rawText)
+            IntentType.CONTROL_DEVICE -> mapOf("control" to rawText)
             else -> emptyMap()
         }
 

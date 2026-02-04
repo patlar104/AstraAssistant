@@ -6,6 +6,7 @@ import android.speech.SpeechRecognizer
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import dev.patrick.astra.actions.AccessibilityActionExecutor
+import dev.patrick.astra.actions.AccessibilityGestureExecutor
 import dev.patrick.astra.actions.ActionConfirmationPolicy
 import dev.patrick.astra.actions.ActionExecutor
 import dev.patrick.astra.actions.ActionResult
@@ -13,6 +14,7 @@ import dev.patrick.astra.brains.Brain
 import dev.patrick.astra.brains.BrainResult
 import dev.patrick.astra.brains.SkillRouter
 import dev.patrick.astra.brains.intent.ActionPlan
+import dev.patrick.astra.brains.intent.DeviceActionStep
 import dev.patrick.astra.brains.llm.BrainContext
 import dev.patrick.astra.brains.llm.FakeLlmClient
 import dev.patrick.astra.data.AstraDatabase
@@ -70,7 +72,10 @@ class AstraViewModel(
             overlayPermissionGranted = false,
             voiceAvailable = false,
             voiceError = null,
-            accessibilityEnabled = false
+            accessibilityEnabled = false,
+            accessibilityServiceReady = false,
+            automationAvailable = false,
+            automationError = null
         )
     )
     val healthState: StateFlow<HealthState> = _healthState.asStateFlow()
@@ -92,7 +97,8 @@ class AstraViewModel(
         scope = viewModelScope
     )
 
-    private val actionExecutor: ActionExecutor = AccessibilityActionExecutor(context)
+    private val intentActionExecutor: ActionExecutor = AccessibilityActionExecutor(context)
+    private val gestureActionExecutor: ActionExecutor = AccessibilityGestureExecutor(context)
     private val actionPolicy = ActionConfirmationPolicy(context)
 
     private var transcriptionEngine: TranscriptionEngine? = null
@@ -103,6 +109,8 @@ class AstraViewModel(
     private var currentSttSessionId: Long = 0L
 
     private val sessionId: Long = System.currentTimeMillis()
+
+    private var lastAutomationError: String? = null
 
     init {
         AssistantStateStore.dispatch(AssistantEvent.ResetToIdle)
@@ -119,18 +127,22 @@ class AstraViewModel(
         }
         val voiceError = transcriptionEngine?.lastError
         val accessibilityEnabled = AccessibilityBridge(context).isServiceReady()
+        val automationAvailable = accessibilityEnabled
 
         _healthState.value = HealthState(
             overlayPermissionGranted = overlayGranted,
             voiceAvailable = voiceAvailable,
             voiceError = voiceError,
-            accessibilityEnabled = accessibilityEnabled
+            accessibilityEnabled = accessibilityEnabled,
+            accessibilityServiceReady = accessibilityEnabled,
+            automationAvailable = automationAvailable,
+            automationError = lastAutomationError
         )
     }
 
     private fun loadInitialMessages() {
         viewModelScope.launch {
-            val storedMessages = repository.loadRecent(MAX_MESSAGES)
+            val storedMessages = repository.loadRecent(sessionId, MAX_MESSAGES)
             val messages = if (storedMessages.isEmpty()) {
                 val greeting = AstraMessage(
                     fromUser = false,
@@ -269,7 +281,36 @@ class AstraViewModel(
     private fun executeActionPlan(plan: ActionPlan.ExecuteDeviceActions) {
         AssistantStateStore.dispatch(AssistantEvent.ThinkingStarted)
         viewModelScope.launch {
-            val result = actionExecutor.execute(plan)
+            val usesUiActions = plan.steps.any { step ->
+                step is DeviceActionStep.TapByText ||
+                    step is DeviceActionStep.TapById ||
+                    step is DeviceActionStep.Scroll ||
+                    step is DeviceActionStep.NavigateBack ||
+                    step is DeviceActionStep.NavigateHome ||
+                    step is DeviceActionStep.NavigateRecents
+            }
+
+            if (usesUiActions && !AccessibilityBridge(context).isServiceReady()) {
+                lastAutomationError = "Accessibility service disabled"
+                refreshHealth()
+                snackbarEvents.emit(
+                    SnackbarEvent(
+                        message = "Enable accessibility to automate actions",
+                        actionLabel = "Open settings",
+                        onAction = { AccessibilityBridge(context).openServiceSettings() }
+                    )
+                )
+                _uiState.update { state -> state.copy(isThinking = false) }
+                AssistantStateStore.dispatch(AssistantEvent.ThinkingStopped)
+                return@launch
+            }
+
+            val executor = if (usesUiActions) gestureActionExecutor else intentActionExecutor
+            val result = executor.execute(plan)
+            if (usesUiActions) {
+                lastAutomationError = if (result.success) null else result.error?.message
+                refreshHealth()
+            }
             handleActionResult(result)
             AssistantStateStore.dispatch(AssistantEvent.ThinkingStopped)
         }
