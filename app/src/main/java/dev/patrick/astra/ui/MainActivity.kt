@@ -1,11 +1,8 @@
 package dev.patrick.astra.ui
 
 import android.Manifest
-import android.content.Intent
 import android.content.pm.PackageManager
-import android.net.Uri
 import android.os.Bundle
-import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -54,7 +51,6 @@ import dev.patrick.astra.domain.AssistantPhase
 import dev.patrick.astra.domain.AssistantVisualState
 import dev.patrick.astra.domain.Emotion
 import dev.patrick.astra.domain.DebugFlags
-import dev.patrick.astra.overlay.OverlayService
 import dev.patrick.astra.ui.theme.AstraAssistantTheme
 
 class MainActivity : ComponentActivity() {
@@ -77,7 +73,8 @@ class MainActivity : ComponentActivity() {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AstraHomeScreen(
-    viewModel: AstraViewModel = viewModel()
+    viewModel: AstraViewModel = viewModel(),
+    overlayLaunchCoordinator: OverlayLaunchCoordinator = OverlayLaunchCoordinator()
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val visualState by viewModel.visualState.collectAsState()
@@ -86,6 +83,9 @@ fun AstraHomeScreen(
     val context = LocalContext.current
 
     val snackbarHostState = remember { SnackbarHostState() }
+    val coordinator = remember(overlayLaunchCoordinator) { overlayLaunchCoordinator }
+
+    val overlayLaunchCoordinator = remember { OverlayLaunchCoordinator() }
 
     // Launcher to open the overlay permission screen
     val overlayPermissionLauncher = rememberLauncherForActivityResult(
@@ -94,20 +94,12 @@ fun AstraHomeScreen(
         // User returns from permission screen; they can tap again to start overlay if granted.
     }
 
-    fun requestOverlayPermission() {
-        val intent = Intent(
-            Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-            Uri.parse("package:${context.packageName}")
-        )
-        overlayPermissionLauncher.launch(intent)
-    }
-
     fun startOverlayIfPossible() {
-        if (!OverlayService.canDrawOverlays(context)) {
-            requestOverlayPermission()
-        } else {
-            val intent = Intent(context, OverlayService::class.java)
-            context.startService(intent)
+        when (val action = coordinator.nextAction(context)) {
+            is OverlayLaunchAction.RequestPermission ->
+                overlayPermissionLauncher.launch(action.intent)
+            is OverlayLaunchAction.StartService ->
+                context.startService(action.intent)
         }
     }
 

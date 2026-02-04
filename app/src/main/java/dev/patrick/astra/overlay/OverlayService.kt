@@ -81,6 +81,7 @@ class OverlayService :
         val density = displayMetrics.density
         val bubbleMarginPx = (12f * density).roundToInt()
         val fallbackBubbleSizePx = (ORB_BASE_DP * ORB_VISUAL_CONTAINER_SCALE * density).roundToInt()
+        val dismissZone = computeDismissZone(screenWidth, screenHeight, bubbleMarginPx)
 
         windowManager = getSystemService()
 
@@ -121,6 +122,7 @@ class OverlayService :
 
         val wm = windowManager
         val composeView = ComposeView(this).apply {
+            contentDescription = OVERLAY_CONTENT_DESC
             setViewCompositionStrategy(
                 ViewCompositionStrategy.DisposeOnDetachedFromWindow
             )
@@ -170,13 +172,7 @@ class OverlayService :
 
                         val centerX = layoutParams.x + effectiveW / 2
                         val centerY = layoutParams.y + effectiveH / 2
-                        val dismissTop = (screenHeight * 0.75f).roundToInt()
-                        val dismissBottom = screenHeight - bubbleMarginPx
-                        val dismissCenterX = screenWidth / 2
-                        val dismissHalfWidth = (screenWidth * 0.35f).roundToInt()
-                        val inHorizontalBand = kotlin.math.abs(centerX - dismissCenterX) <= dismissHalfWidth
-                        val inVerticalBand = centerY in dismissTop..dismissBottom
-                        val inDismissZone = inHorizontalBand && inVerticalBand
+                        val inDismissZone = isInDismissZone(centerX, centerY, dismissZone)
 
                         if (inDismissZone) {
                             dragEverInDismissZone = true
@@ -396,6 +392,7 @@ class OverlayService :
         private const val MOVE_THRESHOLD_PX = 4f
         private const val DISMISS_TAG = "OverlayServiceDismiss"
         private const val OVERLAY_DEBUG_TAG = "OverlayDebug"
+        internal const val OVERLAY_CONTENT_DESC = "AstraOverlay"
         fun canDrawOverlays(context: Context): Boolean {
             return Settings.canDrawOverlays(context)
         }
