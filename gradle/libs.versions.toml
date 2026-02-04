@@ -14,6 +14,7 @@ lcCommonJava8 = "2.10.0"
 coroutinesAndroid = "1.10.2"
 activityCompose = "1.12.0"
 composeBom = "2025.11.01"
+composeScreenshot = "0.0.1-alpha13"
 androidxTestCore = "1.6.1"
 robolectric = "4.12.2"
 
@@ -43,8 +44,10 @@ androidx-compose-foundation = { group = "androidx.compose.foundation", name = "f
 androidx-compose-foundation-layout = { group = "androidx.compose.foundation", name = "foundation-layout" }
 androidx-compose-animation = { group = "androidx.compose.animation", name = "animation" }
 kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutinesAndroid" }
+screenshot-validation-api = { group = "com.android.tools.screenshot", name = "screenshot-validation-api", version.ref = "composeScreenshot" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
 kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
 kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
+compose-screenshot = { id = "com.android.compose.screenshot", version.ref = "composeScreenshot" }

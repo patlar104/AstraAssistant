@@ -73,7 +73,8 @@ class MainActivity : ComponentActivity() {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AstraHomeScreen(
-    viewModel: AstraViewModel = viewModel()
+    viewModel: AstraViewModel = viewModel(),
+    overlayLaunchCoordinator: OverlayLaunchCoordinator = OverlayLaunchCoordinator()
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val visualState by viewModel.visualState.collectAsState()
@@ -82,6 +83,7 @@ fun AstraHomeScreen(
     val context = LocalContext.current
 
     val snackbarHostState = remember { SnackbarHostState() }
+    val coordinator = remember(overlayLaunchCoordinator) { overlayLaunchCoordinator }
 
     val overlayLaunchCoordinator = remember { OverlayLaunchCoordinator() }
 
@@ -93,7 +95,7 @@ fun AstraHomeScreen(
     }
 
     fun startOverlayIfPossible() {
-        when (val action = overlayLaunchCoordinator.nextAction(context)) {
+        when (val action = coordinator.nextAction(context)) {
             is OverlayLaunchAction.RequestPermission ->
                 overlayPermissionLauncher.launch(action.intent)
             is OverlayLaunchAction.StartService ->

@@ -1,7 +1,10 @@
+import com.android.build.api.dsl.ManagedVirtualDevice
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
+    alias(libs.plugins.compose.screenshot)
 }
 
 android {
@@ -40,8 +43,18 @@ android {
         compose = true
         buildConfig = true
     }
+    experimentalProperties["android.experimental.enableScreenshotTest"] = true
     testOptions {
         unitTests.isIncludeAndroidResources = true
+        managedDevices {
+            allDevices {
+                maybeCreate<ManagedVirtualDevice>("pixel9ProXlApi36").apply {
+                    device = "Pixel 9 Pro XL"
+                    apiLevel = 36
+                    systemImageSource = "google"
+                }
+            }
+        }
     }
 }
 
@@ -67,8 +80,12 @@ dependencies {
     testImplementation(libs.robolectric)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
+    androidTestImplementation(libs.androidx.espresso.intents)
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
+    screenshotTestImplementation(platform(libs.androidx.compose.bom))
+    screenshotTestImplementation(libs.androidx.compose.ui.tooling)
+    screenshotTestImplementation(libs.screenshot.validation.api)
     debugImplementation(libs.androidx.compose.ui.tooling)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
 }
