@@ -17,30 +17,7 @@ object AssistantStateStore {
     )
     val visualState: StateFlow<AssistantVisualState> = _visualState.asStateFlow()
 
-    fun set(
-        phase: AssistantPhase,
-        emotion: Emotion = _visualState.value.emotion
-    ) {
-        _visualState.value = AssistantVisualState(
-            phase = phase,
-            emotion = emotion
-        )
-    }
-
-    fun update(
-        phase: AssistantPhase? = null,
-        emotion: Emotion? = null
-    ) {
-        _visualState.value = AssistantVisualState(
-            phase = phase ?: _visualState.value.phase,
-            emotion = emotion ?: _visualState.value.emotion
-        )
-    }
-
-    fun setError(reason: String?) {
-        set(
-            phase = AssistantPhase.Error(reason),
-            emotion = Emotion.Concerned
-        )
+    fun dispatch(event: AssistantEvent) {
+        _visualState.value = AssistantStateReducer.reduce(_visualState.value, event)
     }
 }

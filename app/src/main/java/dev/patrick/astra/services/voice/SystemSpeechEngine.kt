@@ -1,7 +1,7 @@
 package dev.patrick.astra.services.voice
 
 import android.content.Context
-import dev.patrick.astra.services.voice.SpeechRecognizerManager
+import android.speech.SpeechRecognizer
 
 /**
  * TranscriptionEngine implementation that uses the existing
@@ -16,10 +16,12 @@ class SystemSpeechEngine(
     private val appContext = context.applicationContext
 
     private var manager: SpeechRecognizerManager? = null
+    override var lastError: String? = null
+        private set
 
     private fun ensureManager(
         onFinalResult: (String) -> Unit,
-        onError: (String) -> Unit,
+        onError: (TranscriptionError) -> Unit,
         onListeningChanged: (Boolean) -> Unit
     ) {
         if (manager == null) {
@@ -29,7 +31,16 @@ class SystemSpeechEngine(
                     onFinalResult(text)
                 },
                 onError = { errorCode ->
-                    onError("System STT error code: $errorCode")
+                    val isTransient = errorCode in TRANSIENT_ERROR_CODES
+                    val message = "System STT error code: $errorCode"
+                    lastError = message
+                    onError(
+                        TranscriptionError(
+                            code = errorCode,
+                            message = message,
+                            isTransient = isTransient
+                        )
+                    )
                 },
                 onListeningChanged = { listening ->
                     onListeningChanged(listening)
@@ -40,9 +51,21 @@ class SystemSpeechEngine(
 
     override fun startListening(
         onFinalResult: (String) -> Unit,
-        onError: (String) -> Unit,
+        onError: (TranscriptionError) -> Unit,
         onListeningChanged: (Boolean) -> Unit
     ) {
+        if (!isAvailable()) {
+            val message = "System STT is not available on this device."
+            lastError = message
+            onError(
+                TranscriptionError(
+                    code = null,
+                    message = message,
+                    isTransient = false
+                )
+            )
+            return
+        }
         ensureManager(onFinalResult, onError, onListeningChanged)
         manager?.startListening()
     }
@@ -54,5 +77,19 @@ class SystemSpeechEngine(
     override fun release() {
         manager?.destroy()
         manager = null
+    }
+
+    override fun isAvailable(): Boolean {
+        return SpeechRecognizer.isRecognitionAvailable(appContext)
+    }
+
+    companion object {
+        private val TRANSIENT_ERROR_CODES = setOf(
+            SpeechRecognizer.ERROR_NETWORK,
+            SpeechRecognizer.ERROR_NETWORK_TIMEOUT,
+            SpeechRecognizer.ERROR_SERVER,
+            SpeechRecognizer.ERROR_SPEECH_TIMEOUT,
+            SpeechRecognizer.ERROR_TOO_MANY_REQUESTS
+        )
     }
 }

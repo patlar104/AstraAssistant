@@ -5,16 +5,20 @@ import android.content.Intent
 import android.os.IBinder
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
+import android.os.Handler
+import android.os.Looper
 import java.util.Locale
 import java.util.ArrayDeque
-import dev.patrick.astra.domain.AssistantPhase
+import dev.patrick.astra.diagnostics.DiagnosticsLog
+import dev.patrick.astra.domain.AssistantEvent
 import dev.patrick.astra.domain.AssistantStateStore
-import dev.patrick.astra.domain.Emotion
 
 class TtsService : Service(), TextToSpeech.OnInitListener {
 
     private var tts: TextToSpeech? = null
     private var isReady = false
+    private val handler = Handler(Looper.getMainLooper())
+    private var initTimeoutPosted = false
 
     // Queue for texts received before initialization
     private val pendingQueue = ArrayDeque<String>()
@@ -22,6 +26,7 @@ class TtsService : Service(), TextToSpeech.OnInitListener {
     override fun onCreate() {
         super.onCreate()
         tts = TextToSpeech(this, this)
+        postInitTimeout()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -33,6 +38,7 @@ class TtsService : Service(), TextToSpeech.OnInitListener {
 
     override fun onInit(status: Int) {
         if (status == TextToSpeech.SUCCESS) {
+            cancelInitTimeout()
             tts?.language = Locale.US
             tts?.setOnUtteranceProgressListener(
                 object : UtteranceProgressListener() {
@@ -41,16 +47,13 @@ class TtsService : Service(), TextToSpeech.OnInitListener {
                     }
 
                     override fun onDone(utteranceId: String?) {
-                        updateAssistantState(
-                            targetState = AssistantPhase.Idle,
-                            targetEmotion = Emotion.Neutral
-                        )
+                        AssistantStateStore.dispatch(AssistantEvent.SpeakingStopped)
                     }
 
                     override fun onError(utteranceId: String?, errorCode: Int) {
-                        updateAssistantState(
-                            targetState = AssistantPhase.Error(reason = "tts_error_$errorCode"),
-                            targetEmotion = Emotion.Concerned
+                        DiagnosticsLog.e(TAG, "TTS error code=$errorCode")
+                        AssistantStateStore.dispatch(
+                            AssistantEvent.Error(reason = "tts_error_$errorCode")
                         )
                     }
 
@@ -72,10 +75,7 @@ class TtsService : Service(), TextToSpeech.OnInitListener {
     }
 
     private fun enqueueOrSpeak(text: String) {
-        AssistantStateStore.set(
-            phase = AssistantPhase.Speaking,
-            emotion = Emotion.Happy
-        )
+        AssistantStateStore.dispatch(AssistantEvent.SpeakingStarted)
         if (!isReady) {
             pendingQueue.addLast(text)
             return
@@ -93,22 +93,11 @@ class TtsService : Service(), TextToSpeech.OnInitListener {
         )
     }
 
-    private fun updateAssistantState(targetState: AssistantPhase, targetEmotion: Emotion) {
-        if (tts?.isSpeaking != true) {
-            AssistantStateStore.set(
-                phase = targetState,
-                emotion = targetEmotion
-            )
-        }
-    }
-
     override fun onDestroy() {
         tts?.stop()
         tts?.shutdown()
-        AssistantStateStore.set(
-            phase = AssistantPhase.Idle,
-            emotion = Emotion.Neutral
-        )
+        cancelInitTimeout()
+        AssistantStateStore.dispatch(AssistantEvent.ResetToIdle)
         super.onDestroy()
     }
 
@@ -116,5 +105,24 @@ class TtsService : Service(), TextToSpeech.OnInitListener {
 
     companion object {
         const val EXTRA_TEXT = "tts_text"
+        private const val TAG = "TtsService"
+        private const val INIT_TIMEOUT_MS = 5_000L
+    }
+
+    private fun postInitTimeout() {
+        if (initTimeoutPosted) return
+        initTimeoutPosted = true
+        handler.postDelayed({
+            if (!isReady) {
+                DiagnosticsLog.e(TAG, "TTS initialization timeout")
+                AssistantStateStore.dispatch(AssistantEvent.Error(reason = "tts_init_timeout"))
+            }
+        }, INIT_TIMEOUT_MS)
+    }
+
+    private fun cancelInitTimeout() {
+        if (!initTimeoutPosted) return
+        handler.removeCallbacksAndMessages(null)
+        initTimeoutPosted = false
     }
 }

@@ -3,6 +3,7 @@ package dev.patrick.astra.overlay
 import android.content.Context
 import android.content.Intent
 import android.graphics.PixelFormat
+import android.os.IBinder
 import android.provider.Settings
 import android.util.Log
 import android.view.Gravity
@@ -25,10 +26,9 @@ import androidx.savedstate.SavedStateRegistryController
 import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import dev.patrick.astra.BuildConfig
-import dev.patrick.astra.domain.AssistantPhase
+import dev.patrick.astra.domain.AssistantEvent
 import dev.patrick.astra.domain.AssistantStateStore
 import dev.patrick.astra.domain.DebugFlags
-import dev.patrick.astra.domain.Emotion
 import dev.patrick.astra.ui.MainActivity
 import dev.patrick.astra.ui.theme.AstraAssistantTheme
 import kotlin.math.roundToInt
@@ -74,6 +74,9 @@ class OverlayService :
             stopSelf()
             return
         }
+
+        OverlayForegroundController.ensureChannel(this)
+        startForeground(NOTIFICATION_ID, OverlayForegroundController.buildNotification(this))
 
         val displayMetrics = resources.displayMetrics
         val screenWidth = displayMetrics.widthPixels
@@ -341,7 +344,20 @@ class OverlayService :
         overlayView = null
         windowManager = null
         viewModelStore.clear()
+        stopForeground(STOP_FOREGROUND_REMOVE)
         super.onDestroy()
+    }
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action == ACTION_STOP_OVERLAY) {
+            stopSelf()
+            return START_NOT_STICKY
+        }
+        return super.onStartCommand(intent, flags, startId)
+    }
+
+    override fun onBind(intent: Intent): IBinder? {
+        return super.onBind(intent)
     }
 
     private fun bringMainActivityToFront() {
@@ -352,18 +368,12 @@ class OverlayService :
     }
 
     private fun requestVoice() {
-        AssistantStateStore.set(
-            phase = AssistantPhase.Listening,
-            emotion = Emotion.Focused
-        )
+        AssistantStateStore.dispatch(AssistantEvent.ListeningStarted)
         bringMainActivityToFront()
     }
 
     private fun requestTranslate() {
-        AssistantStateStore.set(
-            phase = AssistantPhase.Thinking,
-            emotion = Emotion.Curious
-        )
+        AssistantStateStore.dispatch(AssistantEvent.ThinkingStarted)
     }
 
     private fun requestSettings() {
@@ -396,6 +406,8 @@ class OverlayService :
         private const val MOVE_THRESHOLD_PX = 4f
         private const val DISMISS_TAG = "OverlayServiceDismiss"
         private const val OVERLAY_DEBUG_TAG = "OverlayDebug"
+        const val ACTION_STOP_OVERLAY = "dev.patrick.astra.overlay.action.STOP"
+        const val NOTIFICATION_ID = 1001
         fun canDrawOverlays(context: Context): Boolean {
             return Settings.canDrawOverlays(context)
         }

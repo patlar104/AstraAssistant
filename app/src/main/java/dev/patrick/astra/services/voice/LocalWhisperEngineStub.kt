@@ -12,14 +12,24 @@ package dev.patrick.astra.services.voice
  * For now, this is only a TODO placeholder and does nothing at runtime.
  */
 class LocalWhisperEngineStub : TranscriptionEngine {
+    override var lastError: String? = null
+        private set
 
     override fun startListening(
         onFinalResult: (String) -> Unit,
-        onError: (String) -> Unit,
+        onError: (TranscriptionError) -> Unit,
         onListeningChanged: (Boolean) -> Unit
     ) {
         onListeningChanged(false)
-        onError("LocalWhisperEngineStub is not implemented yet.")
+        val message = "LocalWhisperEngineStub is not implemented yet."
+        lastError = message
+        onError(
+            TranscriptionError(
+                code = null,
+                message = message,
+                isTransient = false
+            )
+        )
     }
 
     override fun stopListening() {
@@ -29,4 +39,6 @@ class LocalWhisperEngineStub : TranscriptionEngine {
     override fun release() {
         // no-op
     }
+
+    override fun isAvailable(): Boolean = false
 }

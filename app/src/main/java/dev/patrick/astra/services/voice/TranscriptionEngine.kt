@@ -22,7 +22,7 @@ interface TranscriptionEngine {
      */
     fun startListening(
         onFinalResult: (String) -> Unit,
-        onError: (String) -> Unit,
+        onError: (TranscriptionError) -> Unit,
         onListeningChanged: (Boolean) -> Unit
     )
 
@@ -36,4 +36,20 @@ interface TranscriptionEngine {
      * Clean up any resources (e.g., microphones, native handles).
      */
     fun release()
+
+    /**
+     * Returns whether the engine is available on this device.
+     */
+    fun isAvailable(): Boolean
+
+    /**
+     * Latest error message, if any.
+     */
+    val lastError: String?
 }
+
+data class TranscriptionError(
+    val code: Int?,
+    val message: String,
+    val isTransient: Boolean
+)

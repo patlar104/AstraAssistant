@@ -69,6 +69,10 @@ class Brain(
         result
     }
 
+    fun setContext(context: BrainContext) {
+        brainContext = context
+    }
+
     private fun logOutcome(intent: ParsedIntent, result: BrainResult) {
         when (result) {
             is BrainResult.DirectReply -> {
